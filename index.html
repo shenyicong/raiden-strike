@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#03060f">
+<meta name="description" content="雷霆战机 Raiden Strike —— 纯原生 HTML5 + Canvas 的街机纵向弹幕射击游戏，零依赖零资源，开箱可玩。">
+<title>雷霆战机 · RAIDEN STRIKE</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🚀</text></svg>">
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="game"></canvas>
+
+  <div id="overlay" class="overlay show">
+    <div class="panel">
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+
+      <h1 id="ovTitle">雷 霆 战 机</h1>
+      <p id="ovSub" class="sub">RAIDEN STRIKE · 街机纵版弹幕射击</p>
+      <div id="ovStats" class="stats-wrap"></div>
+
+      <button id="ovBtn" class="btn">开始任务</button>
+      <p id="ovHint" class="hint">按 Enter / 空格 也可开始</p>
+    </div>
+  </div>
+
+  <div id="touchHint">拖动屏幕移动 · 自动射击</div>
+  <div id="muteTag"></div>
+</div>
+
+<footer id="credit">
+  <span>雷霆战机 · 开源项目</span>
+  <span class="dot">·</span>
+  <a href="https://github.com/shenyicong/raiden-strike" target="_blank" rel="noopener">GitHub</a>
+  <span class="dot">·</span>
+  <span>MIT License</span>
+</footer>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
