@@ -31,6 +31,16 @@
   .settings label { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:8px 0; font-size:13px; }
   .settings input[type=range] { width:140px; }
   ol { text-align:left; font-size:12px; color:#cdd6ea; padding-left:18px; }
+  /* 战机选择 (v2.1) */
+  .panel .sec { font-size:13px; margin:12px 0 6px; color:#8fa4c8; letter-spacing:2px; }
+  .ships { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .ships button { display:flex; flex-direction:column; gap:2px; width:100%; margin:0; padding:8px 6px;
+    font-size:12px; text-align:center; line-height:1.35; }
+  .ships button b { font-size:13px; }
+  .ships button span { color:#9fb0d0; font-size:11px; }
+  .ships button i { font-style:normal; color:#6f7f9e; font-size:10px; }
+  .ships button.sel { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .ships button.locked { opacity:.5; }
   .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
   .diag { position:absolute; top:6px; left:50%; transform:translateX(-50%); font-size:11px;
     background:rgba(0,0,0,.6); color:#9fe; padding:4px 8px; border-radius:6px; pointer-events:none; }

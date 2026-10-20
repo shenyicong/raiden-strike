@@ -101,3 +101,29 @@ test('UI 每帧 sync 后，开始按钮仍能通过事件委托点击（不依�
 
   assert.equal(started, 2, `两次点击应各触发一次 start，实际 ${started} 次`);
 });
+
+test('v2.1 标题页：渲染 6 张战机卡，未解锁的置灰且标注解锁条件', async () => {
+  globalThis.document = { createElement: (tag) => new FakeEl(tag) };
+  const { UI } = await import('../src/ui.js');
+  const { emptyData } = await import('../src/storage.js');
+  const data = emptyData();
+  const fakeGame = {
+    data, settings: data.settings, score: 0, graze: { count: 0 }, player: { bombs: 0, ship: null },
+    persistSettings() {},
+  };
+  const ui = new UI(new FakeEl('div'), fakeGame);
+  let picked = null;
+  ui.onAction = (a) => { if (a.startsWith('ship:')) picked = a; };
+  ui.sync('ready');
+
+  const cards = ui.overlay.children.filter((c) => String(c.attrs['data-action'] || '').startsWith('ship:'));
+  assert.equal(cards.length, 6, '标题页应有 6 架战机的选择卡');
+  const locked = cards.filter((c) => String(c.attrs.class || '').includes('locked'));
+  assert.equal(locked.length, 4, '初始仅有雷霆号/幻影可选，其余 4 架置灰');
+  assert.ok(ui.overlay.innerHTML.includes('到达第 2 区解锁'), '未解锁卡应显示解锁条件');
+
+  // 点击已解锁机型应派发切换事件（未解锁机型由 main.js 侧忽略）
+  const phantom = cards.find((c) => c.attrs['data-action'] === 'ship:phantom');
+  ui.overlay.dispatch('click', { target: phantom, stopPropagation() {} });
+  assert.equal(picked, 'ship:phantom');
+});

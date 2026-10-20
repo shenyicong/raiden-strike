@@ -4,6 +4,8 @@
 //  2) 按钮绑定一律用事件委托挂在 overlay 上，绝不用 querySelector(...).onclick ——
 //     任何一次查不到节点都不允许抛错拖死整个游戏（"黑屏"）。
 import { DIFFICULTY } from './config.js';
+import { SHIPS } from './config.js';
+import { isUnlocked, unlockText } from './ships.js';
 
 export class UI {
   constructor(root, game) {
@@ -118,18 +120,37 @@ export class UI {
     this.overlay.innerHTML = html;
   }
 
+  // 战机选择卡：已解锁可选，未解锁显示解锁条件 (v2.1)
+  _shipCards() {
+    const g = this.game;
+    const unlocked = (g && g.data && g.data.unlocked) || [];
+    const cur = (g && g.settings && g.settings.ship) || 'raiden';
+    return SHIPS.map((s) => {
+      const open = isUnlocked(s.id, unlocked);
+      const sel = open && s.id === cur;
+      return `<button class="ship${sel ? ' sel' : ''}${open ? '' : ' locked'}" type="button"
+        data-action="ship:${s.id}" ${open ? '' : 'aria-disabled="true"'}>
+          <b style="color:${s.color}">${s.name}</b><span>${s.desc}</span>
+          <i>${open ? (sel ? '已选择' : '可用') : '未解锁 · ' + unlockText(s)}</i>
+        </button>`;
+    }).join('');
+  }
+
   title() {
     this._wrap(`
       <div class="panel">
         <h1>雷霆战机 RAIDEN STRIKE</h1>
         <p>纵版弹幕射击 · 判定点仅 9px，穿过去！</p>
-        <p class="hint">键盘 WASD/方向键移动 · 自动射击 · K/X 炸弹 · P/Esc 暂停 · M 静音</p>
+        <p class="hint">键盘 WASD/方向键移动 · 自动射击 · Shift 精确 · P/Esc 暂停 · M 静音</p>
+        <p class="hint">B 炸弹补给只可收集，不能主动引爆（本版本炸弹禁用）</p>
+        <h3 class="sec">选择战机</h3>
+        <div class="ships" id="ship-list">${this._shipCards()}</div>
         <button id="btn-start" class="primary" type="button" data-action="start">开始游戏</button>
         <p class="hint">也可直接点画面任意位置，或按 Enter</p>
         <p class="best" id="t-best"></p>
       </div>`);
     this._refreshTitle();
-    this.setStatus('标题界面，按 Enter 或点击开始');
+    this.setStatus('标题界面，选择战机后按 Enter 或点击开始');
   }
 
   _refreshTitle() {
@@ -178,6 +199,7 @@ export class UI {
       <div class="panel">
         <h2>${win ? '通关！' : '游戏结束'}</h2>
         <p>本局分数：${this.game.score.toLocaleString()}</p>
+        <p>使用战机：${(this.game.player && this.game.player.ship) ? this.game.player.ship.name : '—'} · 收集炸弹 ${this.game.player ? this.game.player.bombs : 0}</p>
         <p>历史最高：${d.best ? d.best.score.toLocaleString() : '—'}</p>
         <p>擦弹：${this.game.graze.count}</p>
         <h3>本地前五榜</h3>

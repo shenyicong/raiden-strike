@@ -30,6 +30,19 @@ export const PLAYER = {
   BLINK_HZ: 2,       // 无敌闪烁 2Hz (FR-PRS-04)
 };
 
+// 可驾驶战机 (v2.1 新增)。
+// speedMult/fireMult/dmgMult 为相对基准倍率；hitR 判定圆半径；livesBonus 相对难度的生命偏移。
+// unlock 决定解锁条件：default 初始解锁 / region:N 到达第 N 区解锁 / win 通关解锁 / score:N 单局分数解锁。
+export const SHIPS = [
+  { id: 'raiden',   name: '雷霆号',   color: '#7fe7ff', desc: '均衡型 · 综合性能稳定',   speedMult: 1.00, fireMult: 1.00, dmgMult: 1.00, hitR: 9,  livesBonus: 0,  unlock: { type: 'default' } },
+  { id: 'phantom',  name: '幻影',     color: '#c9a7ff', desc: '高速小判定 · 判定仅 6px', speedMult: 1.25, fireMult: 1.00, dmgMult: 0.90, hitR: 6,  livesBonus: -1, unlock: { type: 'default' } },
+  { id: 'fortress', name: '重装堡垒', color: '#ffb27f', desc: '重甲厚血 · 生命 +2',      speedMult: 0.80, fireMult: 0.90, dmgMult: 1.10, hitR: 11, livesBonus: 2,  unlock: { type: 'region', region: 2 } },
+  { id: 'falcon',   name: '猎鹰',     color: '#9affc0', desc: '速射型 · 射速 +25%',      speedMult: 1.10, fireMult: 1.25, dmgMult: 0.85, hitR: 9,  livesBonus: 0,  unlock: { type: 'region', region: 3 } },
+  { id: 'aurora',   name: '极光',     color: '#ffd166', desc: '贯通重炮 · 伤害 +30%',    speedMult: 0.95, fireMult: 0.90, dmgMult: 1.30, hitR: 9,  livesBonus: 0,  unlock: { type: 'win' } },
+  { id: 'phoenix',  name: '凤凰',     color: '#ff7fa8', desc: '烈焰护持 · 受击不掉火力', speedMult: 1.05, fireMult: 1.05, dmgMult: 1.00, hitR: 8,  livesBonus: 0,  unlock: { type: 'score', score: 20000 } },
+];
+export const DEFAULT_SHIP_ID = 'raiden';
+
 // 五级火力 (6.3)。energyToNext = 从本级升到下一级所需能量；power 道具固定 +34 能量 (6.6 统一)。
 // 满级共需 100+120+150+200 = 570 能量。
 export const WEAPONS = [

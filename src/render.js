@@ -57,11 +57,23 @@ export class Renderer {
     if (blink) return; // 2Hz 闪烁
     ctx.save();
     ctx.translate(p.x, p.y);
-    // 机身（程序化箭头）
-    ctx.fillStyle = '#7fe7ff';
-    ctx.beginPath();
-    ctx.moveTo(0, -18); ctx.lineTo(12, 12); ctx.lineTo(4, 8); ctx.lineTo(0, 14);
-    ctx.lineTo(-4, 8); ctx.lineTo(-12, 12); ctx.closePath(); ctx.fill();
+    // 机身（程序化）：不同战机不同轮廓与配色 (v2.1)
+    const ship = p.ship || { id: 'raiden', color: '#7fe7ff' };
+    ctx.fillStyle = ship.color;
+    const poly = (pts) => {
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath(); ctx.fill();
+    };
+    switch (ship.id) {
+      case 'phantom':  poly([[0, -20], [7, 4], [3, 10], [0, 6], [-3, 10], [-7, 4]]); break;                       // 细长高速
+      case 'fortress': poly([[0, -14], [16, 0], [14, 14], [5, 10], [0, 16], [-5, 10], [-14, 14], [-16, 0]]); break; // 宽厚重甲
+      case 'falcon':   poly([[0, -18], [14, 10], [5, 6], [9, 14], [0, 10], [-9, 14], [-5, 6], [-14, 10]]); break;   // 双翼后掠
+      case 'aurora':   poly([[0, -22], [10, -2], [6, 12], [0, 8], [-6, 12], [-10, -2]]); break;                     // 菱形重炮
+      case 'phoenix':  poly([[0, -18], [18, 12], [8, 6], [0, 16], [-8, 6], [-18, 12]]); break;                      // 展翼
+      default:         poly([[0, -18], [12, 12], [4, 8], [0, 14], [-4, 8], [-12, 12]]);                            // 经典箭形
+    }
     ctx.fillStyle = '#cdfaff';
     ctx.beginPath(); ctx.arc(0, -2, 3, 0, Math.PI * 2); ctx.fill();
     // 引擎火焰
@@ -73,12 +85,12 @@ export class Renderer {
       ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 22, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.restore();
-    // 判定点 (FR-CBT-06)
+    // 判定点 (FR-CBT-06)：半径随机型变化，保持所见即所得
     if (hitboxVisible(settings)) {
       ctx.fillStyle = '#ffffff';
-      ctx.beginPath(); ctx.arc(p.x, p.y, PLAYER.HIT_RADIUS, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.hitR, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = 'rgba(255,80,80,0.9)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(p.x, p.y, PLAYER.HIT_RADIUS, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.hitR, 0, Math.PI * 2); ctx.stroke();
     }
   }
 
@@ -138,9 +150,20 @@ export class Renderer {
     ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
     ctx.fillText(`SCORE ${g.score.toLocaleString()}`, 8, VIEW.H - 10);
     ctx.fillText(`LIFE ${'♥'.repeat(Math.max(0, g.player.lives))}`, 8, 30);
-    ctx.fillText(`BOMB ${g.player.bombs}`, 120, 30);
+    ctx.fillText(`BOMB ${g.player.bombs}*`, 120, 30); // * = 仅收集，不可使用
     ctx.fillText(`PWR Lv.${g.player.level}`, 220, 30);
+    ctx.fillStyle = (g.player.ship && g.player.ship.color) || '#7fe7ff';
+    ctx.fillText(`SHIP ${g.player.ship ? g.player.ship.name : '雷霆号'}`, 8, 50);
+    ctx.fillStyle = '#fff';
     if (g.muted) { ctx.fillText('🔇', VIEW.W - 24, 30); }
+    // 短提示（解锁/收集）
+    if (g.toast && g.toast.t > 0) {
+      const a = Math.min(1, g.toast.t);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#ffd166'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(g.toast.text, VIEW.W / 2, VIEW.H - 60);
+      ctx.globalAlpha = 1;
+    }
   }
 
   drawFlash() {

@@ -11,6 +11,7 @@ import { getPhase, patternForPhase, phaseInterval } from './boss.js';
 import { WaveDirector } from './levels.js';
 import { busGains, motionFlags, hitboxVisible } from './settings.js';
 import { load, save, recordRun, emptyData } from './storage.js';
+import { shipById, gradeUnlocks, isUnlocked } from './ships.js';
 import { clamp } from './util.js';
 
 export class Game {
@@ -35,20 +36,26 @@ export class Game {
     this.runStart = 0; this.fpsSamples = []; this.lastFpsT = 0; this.fpsFrames = 0;
     this.diag = new URLSearchParams(location.search).get('diag') === '1';
     this.t = 0;
+    this.toast = null; // 短提示（解锁/收集）文本 + 倒计时
+    this.shipId = shipById(this.settings.ship).id; // 归一：未知/缺失回退到雷霆号
+    if (!isUnlocked(this.shipId, this.data.unlocked)) this.shipId = 'raiden';
     performance.mark?.('boot_start');
   }
 
   get difficulty() { return DIFFICULTY[this.settings.difficulty] || DIFFICULTY.standard; }
 
   startRun() {
-    this.player = new Player();
-    this.player.lives = this.difficulty.initLives;
+    // 战机选择：存档未解锁则回退到雷霆号 (v2.1)
+    this.shipId = isUnlocked(this.settings.ship, this.data.unlocked) ? this.settings.ship : 'raiden';
+    this.player = new Player(this.shipId);
+    this.player.lives = Math.max(1, this.difficulty.initLives + this.player.ship.livesBonus);
     this.player.level = 1; this.player.energy = 0;
     this.enemies = []; this.pBullets = []; this.eBullets = []; this.particles = []; this.drops = [];
     this.boss = null;
     this.regionIndex = 0;
     this.waves = new WaveDirector(0, this.settings.difficulty);
     this.score = 0; this.graze = new GrazeTracker();
+    this.toast = null;
     this.sm.transition(STATES.PLAYING);
     this.runStart = performance.now();
     performance.mark?.('run_start');
@@ -61,15 +68,25 @@ export class Game {
   }
   interrupt() { if (this.sm.is(STATES.PLAYING)) this.sm.pause(); }
 
+  // v2.1：炸弹改为纯收集品 —— 可以拾取、计入库存，但不能主动引爆。
+  // 保留方法以便后续若要恢复「可用炸弹」只需在此处改一行。
   useBomb() {
-    if (!this.sm.is(STATES.PLAYING) || this.player.bombs <= 0 || !this.player.alive) return;
-    this.player.bombs -= 1;
-    this.eBullets = []; // 0.3s 内清空（此处瞬时清空等效）
-    for (const e of this.enemies) e.hp -= BOMB.DAMAGE;
-    if (this.boss) this.boss.hp -= BOMB.DAMAGE;
-    this.player.invuln = Math.max(this.player.invuln, BOMB.INVULN);
-    this.flash = 0.6;
-    this.audio.sfx('explosion');
+    if (!this.sm.is(STATES.PLAYING)) return;
+    if (this.player.bombs <= 0) return;
+    this.toast = { text: '炸弹仅可收集，无法主动使用', t: 1.8 };
+  }
+
+  say(text, t = 2.2) { this.toast = { text, t }; }
+
+  // 按进度发放战机解锁；解锁结果写入存档并弹出提示。
+  // cond = { regionReached, win, score }
+  _grantUnlocks(cond) {
+    const cur = Array.isArray(this.data.unlocked) ? this.data.unlocked : [];
+    const granted = gradeUnlocks(cur, cond);
+    if (!granted.length) return;
+    this.data.unlocked = cur.concat(granted);
+    save(this.backend, this.data);
+    this.say('解锁新战机：' + granted.map((id) => shipById(id).name).join('、'), 3.2);
   }
 
   // 主循环步；dt 已钳制 0.1。仅 PLAYING 推进逻辑 (FR-CORE-03)。
@@ -148,6 +165,9 @@ export class Game {
     // 粒子
     for (const pt of this.particles) pt.update(dt);
     this.particles = this.particles.filter((pt) => !pt.dead);
+
+    // 短提示倒计时
+    if (this.toast) { this.toast.t -= dt; if (this.toast.t <= 0) this.toast = null; }
 
     // 区域过渡无敌计时
     if (this.transition > 0) { this.transition -= dt; p.invuln = Math.max(p.invuln, 0.05); }
@@ -242,7 +262,11 @@ export class Game {
   applyDrop(d) {
     this.audio.sfx('pickup');
     if (d.kind === 'power') { const bonus = this.player.addEnergy(); if (bonus) this.score += bonus; this.audio.sfx('powerup'); }
-    else if (d.kind === 'bomb') this.player.bombs = Math.min(PLAYER.BOMBS_MAX, this.player.bombs + 1);
+    else if (d.kind === 'bomb') {
+      // 炸弹只能收集入库（库存用于结算展示），不可主动引爆 (v2.1)
+      this.player.bombs = Math.min(PLAYER.BOMBS_MAX, this.player.bombs + 1);
+      this.say(`炸弹 +1（库存 ${this.player.bombs}）`, 1.4);
+    }
     else if (d.kind === 'shield') this.player.giveShield();
     this.drops = this.drops.filter((x) => x !== d);
   }
@@ -261,9 +285,11 @@ export class Game {
     if (this.regionIndex >= REGIONS.length - 1) {
       this.sm.transition(STATES.WIN);
       this.audio.sfx('win');
+      this._grantUnlocks({ win: true, regionReached: REGIONS.length });
       this.finishRun();
     } else {
       this.regionIndex += 1;
+      this._grantUnlocks({ regionReached: this.regionIndex + 1 }); // 到达新区 -> 发放该区对应战机
       this.transition = 2.2; // 区域过渡无敌 (FR-LVL-05)
       this.waves = new WaveDirector(this.regionIndex, this.settings.difficulty);
       this.sm.transition(STATES.CLEAR);
@@ -281,6 +307,7 @@ export class Game {
     const date = new Date().toISOString().slice(0, 10);
     const duration = Math.round((performance.now() - this.runStart) / 1000);
     const run = { score: this.score, difficulty: this.settings.difficulty, date, duration, region: this.regionIndex + 1 };
+    this._grantUnlocks({ score: this.score }); // 分数达标解锁 (凤凰)
     this.data = recordRun(this.data, run);
     save(this.backend, this.data); // 失败静默降级 (FR-SAV-02)
   }

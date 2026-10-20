@@ -34,11 +34,13 @@ export function theoreticalDps(level) {
 
 // 生成一次射击的弹道（相对玩家中心）。返回子弹描述数组。
 // 形态随等级变化：单发/双列/中央重炮+散射/交替追踪/全弹幕+双追踪。
-export function spawnPlayerShots(level, x, y, t = 0) {
+// dmgMult：战机伤害倍率 (v2.1)。
+export function spawnPlayerShots(level, x, y, t = 0, dmgMult = 1) {
   const w = WEAPONS[Math.min(level, MAX_LEVEL) - 1];
+  const dmg = w.dmg * dmgMult;
   const shots = [];
   const push = (dx, dy, vx, vy, opts = {}) =>
-    shots.push({ x: x + dx, y: y + dy, vx, vy, dmg: w.dmg, ...opts });
+    shots.push({ x: x + dx, y: y + dy, vx, vy, dmg, ...opts });
   const SPEED = 700;
   switch (level) {
     case 1:

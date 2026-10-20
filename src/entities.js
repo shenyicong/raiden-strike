@@ -5,18 +5,20 @@ import {
 import { WEAPONS } from './config.js';
 import { spawnPlayerShots, levelFromEnergy, downgradeOnHit, applyPowerItem } from './weapons.js';
 import { getPhase, onPhaseSwitch } from './boss.js';
+import { shipById } from './ships.js';
 import { clamp } from './util.js';
 
 let _id = 1;
 export const nextId = () => _id++;
 
 export class Player {
-  constructor() {
+  constructor(shipId = 'raiden') {
+    this.ship = shipById(shipId); // 战机规格：速度/射速/伤害/判定半径 (v2.1)
     this.x = VIEW.W / 2;
     this.y = VIEW.H - 90;
     this.level = 1;
     this.energy = 0;
-    this.lives = PLAYER.INIT_LIVES;
+    this.lives = PLAYER.INIT_LIVES + this.ship.livesBonus;
     this.bombs = PLAYER.INIT_BOMBS;
     this.invuln = 0;       // 受击无敌剩余
     this.shield = 0;       // 护盾无敌剩余
@@ -24,7 +26,7 @@ export class Player {
     this.alive = true;
     this.respawn = 0;      // 坠机重生等待
   }
-  get hitR() { return PLAYER.HIT_RADIUS; }
+  get hitR() { return this.ship.hitR; }
   get invulnerable() { return this.invuln > 0 || this.shield > 0; }
 
   addEnergy() {
@@ -44,7 +46,8 @@ export class Player {
     if (this.invuln > 0) this.invuln -= dt;
     if (this.shield > 0) this.shield -= dt;
 
-    const speed = precisionOn ? PLAYER.PRECISION_SPEED : PLAYER.MOVE_SPEED;
+    const base = precisionOn ? PLAYER.PRECISION_SPEED : PLAYER.MOVE_SPEED;
+    const speed = base * this.ship.speedMult;
     let dx = 0, dy = 0;
     if (input.left) dx -= 1;
     if (input.right) dx += 1;
@@ -58,17 +61,18 @@ export class Player {
     // 自动连发 (FR-CBT-02)
     this.fireTimer -= dt;
     if (input.fire && this.fireTimer <= 0) {
-      this.fireTimer = 1 / WEAPONS[this.level - 1].fireRate;
-      return spawnPlayerShots(this.level, this.x, this.y, performance.now() / 1000);
+      this.fireTimer = 1 / (WEAPONS[this.level - 1].fireRate * this.ship.fireMult);
+      return spawnPlayerShots(this.level, this.x, this.y, performance.now() / 1000, this.ship.dmgMult);
     }
     return null;
   }
 
   // 受击：无敌/护盾时忽略；否则掉命+掉级+1.8s 无敌。返回是否真正受击。
+  // 凤凰「烈焰护持」：掉命但火力不降级。
   takeHit() {
     if (!this.alive || this.invulnerable) return false;
     this.lives -= 1;
-    this.level = downgradeOnHit(this.level);
+    if (this.ship.id !== 'phoenix') this.level = downgradeOnHit(this.level);
     this.invuln = PLAYER.HIT_INVULN;
     if (this.lives <= 0) { this.alive = false; this.respawn = PLAYER.RESPAWN_WAIT; }
     return true;

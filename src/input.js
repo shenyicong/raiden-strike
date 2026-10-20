@@ -1,5 +1,6 @@
 // input.js — 输入管理 (FR-INP-01..07 / FR-CORE-07)。
-// 键盘 WASD+方向；Space/J 射击；K/X 炸弹；P/Esc 暂停；M 静音；Shift 精确。
+// 键盘 WASD+方向；Space/J 射击；P/Esc 暂停；M 静音；Shift 精确。
+// v2.1：移除 K/X 炸弹快捷键 —— 炸弹改为纯收集品，不可主动引爆。
 // 指针拖动自动开火；多指不抢锚点；pointercancel/lostpointercapture 清锚点。
 export class InputManager {
   constructor(canvas, handlers = {}) {
@@ -47,8 +48,8 @@ export class InputManager {
     if (down) {
       if (key === 'p' || key === 'escape') { this.h.onPause?.(); return; }
       if (key === 'm') { this.h.onMute?.(); return; }
-      if (key === 'k' || key === 'x') { this.h.onBomb?.(); return; }
       if (key === 'enter') { this.h.onStart?.(); return; }
+      // 注：k/x 原为炸弹键，v2.1 起炸弹仅可收集，不再派发使用事件。
       this.keys.add(key);
       if (key === 'shift') this.precision = true;
     } else {

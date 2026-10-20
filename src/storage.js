@@ -1,7 +1,7 @@
 // storage.js — 本地成绩与设置存储 (FR-SAV-01..05 / 附录 G.1)。
 // 所有 localStorage 访问唯一入口；后端可注入以便 Node 测试 (FR-SAV-02 降级)。
 import {
-  STORAGE_KEY, STORAGE_SCHEMA_VERSION, STORAGE_MAX_BYTES, DIFFICULTY,
+  STORAGE_KEY, STORAGE_SCHEMA_VERSION, STORAGE_MAX_BYTES, DIFFICULTY, SHIPS,
 } from './config.js';
 
 // 首次运行默认值 (FR-SYS-07)。系统 prefers-reduced-motion 时 motion='reduced' 由调用方覆盖。
@@ -12,12 +12,24 @@ export function defaultSettings(prefersReducedMotion = false) {
     motion: prefersReducedMotion ? 'reduced' : 'standard',
     difficulty: 'standard',
     tutorialSeen: false,
+    ship: 'raiden',     // 当前选择战机 (v2.1)
   };
 }
 
 // 空结构（解析失败/版本不符时整体丢弃重建，不抛异常，FR-SAV-05）。
 export function emptyData() {
-  return { schema_version: STORAGE_SCHEMA_VERSION, best: null, top5: [], settings: defaultSettings() };
+  return {
+    schema_version: STORAGE_SCHEMA_VERSION,
+    best: null,
+    top5: [],
+    settings: defaultSettings(),
+    unlocked: defaultUnlocked(), // 已解锁战机 id (v2.1)
+  };
+}
+
+// 初始解锁：unlock.type === 'default' 的机型。
+export function defaultUnlocked() {
+  return SHIPS.filter((s) => !s.unlock || s.unlock.type === 'default').map((s) => s.id);
 }
 
 // 读取。任何异常或版本不符返回空结构。
@@ -34,6 +46,10 @@ export function load(backend, prefersReducedMotion = false) {
     merged.best = data.best ?? null;
     merged.top5 = Array.isArray(data.top5) ? data.top5 : [];
     merged.settings = { ...merged.settings, ...(data.settings || {}) };
+    const un = defaultUnlocked();
+    merged.unlocked = Array.isArray(data.unlocked)
+      ? Array.from(new Set(un.concat(data.unlocked.filter((id) => SHIPS.some((s) => s.id === id)))))
+      : un;
     if (prefersReducedMotion && merged.settings.motion === 'standard') {
       merged.settings.motion = 'reduced';
     }
@@ -64,7 +80,13 @@ export function clearAll(backend, prefersReducedMotion = false) {
 // 记录一局结果：更新最高分与前五榜 (FR-SAV-01/03)。
 // run = { score, difficulty, date:'YYYY-MM-DD', duration, region }
 export function recordRun(data, run) {
-  const next = { ...data, top5: keepTop5(data.top5, run), settings: data.settings };
+  // unlocked 需随局推进一并保留 (v2.1)
+  const next = {
+    ...data,
+    top5: keepTop5(data.top5, run),
+    settings: data.settings,
+    unlocked: data.unlocked || defaultUnlocked(),
+  };
   if (!next.best || run.score > next.best.score) {
     next.best = { score: run.score, difficulty: run.difficulty, date: run.date };
   }

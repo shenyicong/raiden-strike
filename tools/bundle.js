@@ -10,7 +10,7 @@ const ROOT = path.resolve(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
 
 const ORDER = [
-  'config', 'util', 'weapons', 'scoring', 'drops', 'boss', 'storage',
+  'config', 'util', 'weapons', 'ships', 'scoring', 'drops', 'boss', 'storage',
   'settings', 'statemachine', 'entities', 'levels', 'render', 'audio',
   'input', 'ui', 'game', 'main',
 ];

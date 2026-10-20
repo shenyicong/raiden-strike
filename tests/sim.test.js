@@ -93,3 +93,32 @@ test('单帧 dt 钳制：大间隔不导致穿模（位置仍在边界内）', (
   // step 本身不钳制 dt（main 循环钳制），这里仅验证不抛异常且玩家仍在场内
   assert.ok(g.player.x >= 0 && g.player.x <= VIEW.W);
 });
+
+test('v2.1 炸弹：只能收集入库，按使用键不消耗、不清屏', () => {
+  const g = newGame();
+  g.startRun();
+  g.player.bombs = 0;
+  g.applyDrop({ kind: 'bomb', x: g.player.x, y: g.player.y });
+  assert.equal(g.player.bombs, 1, 'B 补给应可收集入库');
+  g.enemies = [{ x: 10, y: 10, hp: 999, dead: false }];
+  g.eBullets = [{ id: 1, x: 10, y: 10, r: 4, dead: false, update() {} }];
+  g.useBomb(); // 炸弹不可使用
+  assert.equal(g.player.bombs, 1, '炸弹不应被消耗');
+  assert.equal(g.eBullets.length, 1, '不应清屏');
+  assert.equal(g.enemies[0].hp, 999, '不应造成伤害');
+});
+
+test('v2.1 战机：开局按所选机型生效，打完第 1 区解锁重装堡垒', () => {
+  const g = newGame();
+  g.settings.ship = 'phantom';
+  g.startRun();
+  assert.equal(g.player.ship.id, 'phantom');
+  assert.equal(g.player.hitR, 6, '幻影判定 6px');
+  assert.equal(g.player.lives, 2, '幻影生命 -1（标准难度 3）');
+  // 击破第 1 区 Boss -> 到达第 2 区
+  g.waves.done = true; g.enemies = [];
+  g.step(1 / 60, performance.now());
+  g.boss.hp = 0;
+  g.step(1 / 60, performance.now());
+  assert.ok((g.data.unlocked || []).includes('fortress'), '到达第 2 区应解锁重装堡垒');
+});

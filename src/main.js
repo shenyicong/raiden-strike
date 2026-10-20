@@ -7,6 +7,7 @@ import { InputManager } from './input.js';
 import { Game } from './game.js';
 import { UI } from './ui.js';
 import { clearAll, emptyData } from './storage.js';
+import { isUnlocked, shipById } from './ships.js';
 
 const canvas = document.getElementById('game');
 const wrap = document.getElementById('stage');
@@ -62,7 +63,7 @@ function boot() {
   input = new InputManager(canvas, {
     onPause: () => { game.pauseToggle(); ui.sync(game.sm.state); },
     onMute: () => { game.muted = !game.muted; audio.setMuted(game.muted); },
-    onBomb: () => game.useBomb(),
+    // v2.1：炸弹仅可收集，不再绑定使用键
     onInterrupt: () => { game.interrupt(); ui.sync(game.sm.state); },
     onStart: () => {
       if (game.sm.is(STATES.READY) || game.sm.is(STATES.GAMEOVER) || game.sm.is(STATES.WIN)) {
@@ -72,6 +73,18 @@ function boot() {
   });
   game.input = input;
   ui.onAction = (a) => {
+    if (a.startsWith('ship:')) {  // 选战机：仅已解锁机型可切换 (v2.1)
+      const id = a.slice(5);
+      try {
+        if (isUnlocked(id, game.data.unlocked)) {
+          game.settings.ship = id;
+          game.persistSettings();
+          ui.setStatus('已选择战机 ' + shipById(id).name);
+        }
+      } catch (_) { /* 选择失败不影响游戏 */ }
+      ui.title();
+      return;
+    }
     if (a === 'start' || a === 'restart') { game.startRun(); ui.sync(game.sm.state); return; }
     if (a === 'resume') { game.sm.resume(); }
     else if (a === 'title') { game.sm.transition(STATES.READY); }

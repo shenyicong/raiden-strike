@@ -7,8 +7,10 @@ import { levelFromEnergy, applyPowerItem, downgradeOnHit, spawnPlayerShots, theo
 import { classifyHit, GrazeTracker, killScore } from '../src/scoring.js';
 import { rollDrop, expectedPowerItems, expectedPowerEnergy } from '../src/drops.js';
 import { getPhase, computePhaseTimes, phasesMeetMinTime } from '../src/boss.js';
-import { load, save, recordRun, clearAll, emptyData, defaultSettings, keepTop5 } from '../src/storage.js';
+import { load, save, recordRun, clearAll, emptyData, defaultSettings, keepTop5, defaultUnlocked } from '../src/storage.js';
 import { sliderToGain, busGains, motionFlags, hitboxVisible } from '../src/settings.js';
+import { SHIPS } from '../src/config.js';
+import { shipById, isUnlocked, gradeUnlocks, unlockText } from '../src/ships.js';
 
 // 内存后端（模拟 localStorage，注入以便测试 FR-SAV-02 降级）
 function memBackend(throwOnSet = false) {
@@ -166,4 +168,36 @@ test('设置：判定点默认显示，可关闭', () => {
 test('平衡：Lv.1→Lv.5 理论 DPS 约 6.75 倍', () => {
   const ratio = theoreticalDps(5) / theoreticalDps(1);
   assert.ok(Math.abs(ratio - 6.75) < 0.05, `ratio=${ratio.toFixed(2)}`);
+});
+
+// ── v2.1 战机与解锁 ──
+test('战机：共 6 架，初始解锁雷霆号与幻影', () => {
+  assert.equal(SHIPS.length, 6);
+  const un = defaultUnlocked();
+  assert.ok(un.includes('raiden'));
+  assert.ok(un.includes('phantom'));
+  assert.equal(isUnlocked('raiden', un), true);
+  assert.equal(isUnlocked('fortress', un), false); // 未解锁机型不可选
+});
+test('战机：按关卡进度解锁（第2区/第3区/通关/2万分）', () => {
+  assert.deepEqual(gradeUnlocks([], { regionReached: 1 }), []);
+  assert.ok(gradeUnlocks([], { regionReached: 2 }).includes('fortress')); // 打到第2区
+  assert.ok(gradeUnlocks([], { regionReached: 3 }).includes('falcon'));   // 打到第3区
+  assert.ok(gradeUnlocks([], { win: true }).includes('aurora'));          // 通关
+  assert.deepEqual(gradeUnlocks([], { score: 19999 }), []);
+  assert.ok(gradeUnlocks([], { score: 20000 }).includes('phoenix'));      // 2万分
+});
+test('战机：已解锁的不再重复发放；解锁文案可读', () => {
+  assert.deepEqual(gradeUnlocks(['fortress'], { regionReached: 3 }), ['falcon']);
+  assert.match(unlockText(shipById('fortress')), /第 2 区/);
+  assert.match(unlockText(shipById('aurora')), /通关/);
+  assert.equal(shipById('不存在的机型').id, 'raiden', '未知 id 回退到默认机');
+});
+test('存档：解锁列表随 recordRun 保留，旧存档自动补初始机型', () => {
+  const b = memBackend();
+  save(b, { ...emptyData(), unlocked: ['fortress'] });
+  const d = load(b);
+  assert.ok(d.unlocked.includes('fortress') && d.unlocked.includes('raiden'));
+  const after = recordRun(d, { score: 1, difficulty: 'standard', date: '2026-01-01', duration: 1, region: 1 });
+  assert.ok(after.unlocked.includes('fortress'), '记分不应丢弃解锁进度');
 });
