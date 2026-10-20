@@ -162,3 +162,24 @@ test('v2.1 战机：开局按所选机型生效，打完第 1 区解锁重装堡
   g.step(1 / 60, performance.now());
   assert.ok((g.data.unlocked || []).includes('fortress'), '到达第 2 区应解锁重装堡垒');
 });
+
+test('v2.2 再来一局：gameover/win 态点重开必须真正进入 playing', () => {
+  const g = newGame();
+  g.startRun();
+  // 触发 gameover
+  g.player.lives = 1; g.player.invuln = 0; g.player.alive = true;
+  g.player.takeHit();
+  g.step(1 / 60, performance.now());
+  assert.equal(g.sm.is(STATES.GAMEOVER), true);
+  // 点"再来一局"
+  g.startRun();
+  assert.equal(g.sm.is(STATES.PLAYING), true, '重开后应进入战斗，而不是停在结算态');
+  assert.equal(g.score, 0);
+  assert.ok(g.player.lives > 0);
+  // 通关态同样可重开
+  const g2 = newGame();
+  g2.startRun();
+  g2.sm.transition(STATES.WIN);
+  g2.startRun();
+  assert.equal(g2.sm.is(STATES.PLAYING), true, '通关后重开也应进入战斗');
+});

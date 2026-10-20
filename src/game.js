@@ -56,6 +56,9 @@ export class Game {
     this.waves = new WaveDirector(0, this.settings.difficulty);
     this.score = 0; this.graze = new GrazeTracker();
     this.toast = null;
+    // 结束态不能直连 playing（状态机合法转换：gameover/win -> ready -> playing）。
+    // 少了这一步，"再来一局"点了会静默失败：状态仍是 gameover，结算面板一直盖着。
+    if (this.sm.is(STATES.GAMEOVER) || this.sm.is(STATES.WIN)) this.sm.transition(STATES.READY);
     this.sm.transition(STATES.PLAYING);
     this.runStart = performance.now();
     performance.mark?.('run_start');
