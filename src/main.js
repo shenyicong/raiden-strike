@@ -8,6 +8,7 @@ import { Game } from './game.js';
 import { UI } from './ui.js';
 import { clearAll, emptyData } from './storage.js';
 import { isUnlocked, shipById } from './ships.js';
+import { isTouchDevice } from './util.js';
 
 const canvas = document.getElementById('game');
 const wrap = document.getElementById('stage');
@@ -58,12 +59,14 @@ function fatal(err) {
 
 function boot() {
   game = new Game({ renderer, audio, input, backend, prefersReducedMotion: prefersReduced });
+  game.mobile = isTouchDevice(); // 设备自适应：触屏端显示虚拟按钮 (v2.2)
   renderer.setSettings(game.settings);
   ui = new UI(wrap, game);
   input = new InputManager(canvas, {
     onPause: () => { game.pauseToggle(); ui.sync(game.sm.state); },
     onMute: () => { game.muted = !game.muted; audio.setMuted(game.muted); },
-    // v2.1：炸弹仅可收集，不再绑定使用键
+    onBomb: () => game.useBomb(), // v2.2：键盘 K/X 与手机炸弹按钮共用
+    getPlayerPos: () => ({ x: game.player.x, y: game.player.y }), // 拖动跟手用
     onInterrupt: () => { game.interrupt(); ui.sync(game.sm.state); },
     onStart: () => {
       if (game.sm.is(STATES.READY) || game.sm.is(STATES.GAMEOVER) || game.sm.is(STATES.WIN)) {

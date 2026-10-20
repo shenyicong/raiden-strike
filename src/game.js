@@ -68,12 +68,20 @@ export class Game {
   }
   interrupt() { if (this.sm.is(STATES.PLAYING)) this.sm.pause(); }
 
-  // v2.1：炸弹改为纯收集品 —— 可以拾取、计入库存，但不能主动引爆。
-  // 保留方法以便后续若要恢复「可用炸弹」只需在此处改一行。
+  // v2.2：炸弹恢复可用（键盘 K/X，或手机右下角按钮）；炸弹依然只能靠拾取获得。
   useBomb() {
-    if (!this.sm.is(STATES.PLAYING)) return;
-    if (this.player.bombs <= 0) return;
-    this.toast = { text: '炸弹仅可收集，无法主动使用', t: 1.8 };
+    if (!this.sm.is(STATES.PLAYING) || this.player.bombs <= 0 || !this.player.alive) {
+      if (this.sm.is(STATES.PLAYING) && this.player.bombs <= 0) this.say('没有炸弹了', 1.2);
+      return;
+    }
+    this.player.bombs -= 1;
+    this.eBullets = []; // 0.3s 内清空（此处瞬时清空等效）
+    for (const e of this.enemies) { e.hp -= BOMB.DAMAGE; if (e.hp <= 0 && !e.dead) this.killEnemy(e); }
+    if (this.boss) this.boss.hp -= BOMB.DAMAGE;
+    this.player.invuln = Math.max(this.player.invuln, BOMB.INVULN);
+    this.flash = 0.6;
+    this.audio.sfx('explosion');
+    this.say(`炸弹！剩余 ${this.player.bombs}`, 1.2);
   }
 
   say(text, t = 2.2) { this.toast = { text, t }; }
@@ -166,8 +174,9 @@ export class Game {
     for (const pt of this.particles) pt.update(dt);
     this.particles = this.particles.filter((pt) => !pt.dead);
 
-    // 短提示倒计时
+    // 短提示倒计时 + 炸弹按钮按下反馈
     if (this.toast) { this.toast.t -= dt; if (this.toast.t <= 0) this.toast = null; }
+    if (this.input && this.input.bombFlash > 0) this.input.bombFlash -= dt;
 
     // 区域过渡无敌计时
     if (this.transition > 0) { this.transition -= dt; p.invuln = Math.max(p.invuln, 0.05); }
@@ -263,9 +272,8 @@ export class Game {
     this.audio.sfx('pickup');
     if (d.kind === 'power') { const bonus = this.player.addEnergy(); if (bonus) this.score += bonus; this.audio.sfx('powerup'); }
     else if (d.kind === 'bomb') {
-      // 炸弹只能收集入库（库存用于结算展示），不可主动引爆 (v2.1)
       this.player.bombs = Math.min(PLAYER.BOMBS_MAX, this.player.bombs + 1);
-      this.say(`炸弹 +1（库存 ${this.player.bombs}）`, 1.4);
+      this.say(`炸弹 +1（剩余 ${this.player.bombs}）`, 1.4);
     }
     else if (d.kind === 'shield') this.player.giveShield();
     this.drops = this.drops.filter((x) => x !== d);

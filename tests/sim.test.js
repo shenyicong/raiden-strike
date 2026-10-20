@@ -18,6 +18,7 @@ function memBackend() { const m = {}; return { getItem: (k) => (k in m ? m[k] : 
 const { Game } = await import('../src/game.js');
 const { STATES } = await import('../src/statemachine.js');
 const { VIEW } = await import('../src/config.js');
+const inputModule = await import('../src/input.js');
 
 function newGame(input = fakeInput()) {
   return new Game({ renderer: fakeRenderer, audio: fakeAudio, input, backend: memBackend() });
@@ -94,7 +95,7 @@ test('单帧 dt 钳制：大间隔不导致穿模（位置仍在边界内）', (
   assert.ok(g.player.x >= 0 && g.player.x <= VIEW.W);
 });
 
-test('v2.1 炸弹：只能收集入库，按使用键不消耗、不清屏', () => {
+test('v2.2 炸弹：可收集入库，也可主动使用（清屏+伤害+消耗）', () => {
   const g = newGame();
   g.startRun();
   g.player.bombs = 0;
@@ -102,10 +103,49 @@ test('v2.1 炸弹：只能收集入库，按使用键不消耗、不清屏', () 
   assert.equal(g.player.bombs, 1, 'B 补给应可收集入库');
   g.enemies = [{ x: 10, y: 10, hp: 999, dead: false }];
   g.eBullets = [{ id: 1, x: 10, y: 10, r: 4, dead: false, update() {} }];
-  g.useBomb(); // 炸弹不可使用
-  assert.equal(g.player.bombs, 1, '炸弹不应被消耗');
-  assert.equal(g.eBullets.length, 1, '不应清屏');
-  assert.equal(g.enemies[0].hp, 999, '不应造成伤害');
+  g.useBomb();
+  assert.equal(g.player.bombs, 0, '使用后应消耗一颗');
+  assert.equal(g.eBullets.length, 0, '应清空敌弹');
+  assert.ok(g.enemies[0].hp < 999, '应对全场敌人造成伤害');
+  assert.ok(g.player.invuln > 0, '应获得短暂无敌');
+  g.useBomb(); // 无炸弹时不报错
+  assert.equal(g.player.bombs, 0);
+});
+
+test('v2.2 拖动跟手：按下时记录机身与手指的相对偏移，移动后偏移保持不变', () => {
+  const events = {};
+  const canvas = {
+    _logicalW: 480, _logicalH: 720,
+    addEventListener: (t, f) => { (events[t] || (events[t] = [])).push(f); },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 480, height: 720 }),
+    setPointerCapture() {},
+  };
+  globalThis.window = { addEventListener: (t, f) => { (events[t] || (events[t] = [])).push(f); } };
+  globalThis.document = { addEventListener() {} };
+  const { InputManager, TOUCH_BUTTONS } = inputModule;
+  let bombCalls = 0, pauseCalls = 0;
+  const inp = new InputManager(canvas, {
+    getPlayerPos: () => ({ x: 240, y: 630 }),
+    onBomb: () => { bombCalls++; },
+    onPause: () => { pauseCalls++; },
+  });
+  // 手指按在机身下方 30px 处
+  const down = { pointerId: 1, clientX: 240, clientY: 660 };
+  events.pointerdown.forEach((f) => f(down));
+  assert.equal(inp.dragX, 240, '横向应精确对齐');
+  assert.equal(inp.dragY, 630, '纵向应保持按下时的相对位置（机身高于手指 30px）');
+  // 手指上移 100px -> 机身也上移 100px，偏移不变
+  events.pointermove.forEach((f) => f({ pointerId: 1, clientX: 240, clientY: 560 }));
+  assert.equal(inp.dragX, 240);
+  assert.equal(inp.dragY, 530, '手指走多少，机身走多少（无延迟/无跳变）');
+  // 点击右下角炸弹按钮 -> 触发 onBomb 且不打断拖动锚点
+  const b = TOUCH_BUTTONS.bomb;
+  events.pointerdown.forEach((f) => f({ pointerId: 2, clientX: b.x, clientY: b.y }));
+  assert.equal(bombCalls, 1, '炸弹按钮应触发放弹');
+  assert.equal(inp.dragId, 1, '按钮不应抢走拖动锚点');
+  // 左下角暂停按钮
+  events.pointerdown.forEach((f) => f({ pointerId: 3, clientX: TOUCH_BUTTONS.pause.x, clientY: TOUCH_BUTTONS.pause.y }));
+  assert.equal(pauseCalls, 1, '暂停按钮应触发暂停');
 });
 
 test('v2.1 战机：开局按所选机型生效，打完第 1 区解锁重装堡垒', () => {

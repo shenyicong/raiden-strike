@@ -1,5 +1,6 @@
 // render.js — Canvas 2D 程序化绘制 (FR-PRS-01/02/05/06)。
 import { VIEW, PLAYER, GLOBAL, REGIONS, BOSS } from './config.js';
+import { TOUCH_BUTTONS } from './input.js';
 import { hitboxVisible, motionFlags } from './settings.js';
 
 export class Renderer {
@@ -150,12 +151,14 @@ export class Renderer {
     ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
     ctx.fillText(`SCORE ${g.score.toLocaleString()}`, 8, VIEW.H - 10);
     ctx.fillText(`LIFE ${'♥'.repeat(Math.max(0, g.player.lives))}`, 8, 30);
-    ctx.fillText(`BOMB ${g.player.bombs}*`, 120, 30); // * = 仅收集，不可使用
+    ctx.fillText(`BOMB ${g.player.bombs}`, 120, 30);
     ctx.fillText(`PWR Lv.${g.player.level}`, 220, 30);
     ctx.fillStyle = (g.player.ship && g.player.ship.color) || '#7fe7ff';
     ctx.fillText(`SHIP ${g.player.ship ? g.player.ship.name : '雷霆号'}`, 8, 50);
     ctx.fillStyle = '#fff';
     if (g.muted) { ctx.fillText('🔇', VIEW.W - 24, 30); }
+    // 触屏端屏幕按钮（桌面端不绘制）
+    if (g.mobile) this._drawTouchButtons(g);
     // 短提示（解锁/收集）
     if (g.toast && g.toast.t > 0) {
       const a = Math.min(1, g.toast.t);
@@ -164,6 +167,35 @@ export class Renderer {
       ctx.fillText(g.toast.text, VIEW.W / 2, VIEW.H - 60);
       ctx.globalAlpha = 1;
     }
+  }
+
+  // 触屏端虚拟按钮：炸弹（右下）、暂停（左下）、精确慢速（左侧）
+  _drawTouchButtons(g) {
+    const ctx = this.ctx;
+    const inp = g.input || {};
+    const hasBomb = g.player.bombs > 0;
+    const draw = (key, opts = {}) => {
+      const b = TOUCH_BUTTONS[key];
+      const active = opts.active;
+      ctx.globalAlpha = opts.dim ? 0.45 : (active ? 0.95 : 0.7);
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fillStyle = active ? '#ffd166' : '#101a30'; ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = active ? '#ffd166' : (opts.dim ? '#5a6a8a' : '#7fb4ff');
+      ctx.stroke();
+      ctx.globalAlpha = opts.dim ? 0.55 : 1;
+      ctx.fillStyle = active ? '#1a1206' : '#e8eefc';
+      ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(b.label, b.x, b.y + 5);
+      if (key === 'bomb') {
+        ctx.font = '10px sans-serif'; ctx.fillStyle = active ? '#1a1206' : '#9fb0d0';
+        ctx.fillText('x' + g.player.bombs, b.x, b.y + 22);
+      }
+      ctx.globalAlpha = 1;
+    };
+    draw('bomb', { dim: !hasBomb, active: inp.bombFlash > 0 });
+    draw('pause', { active: !!(g.sm && g.sm.is && g.sm.is('paused')) });
+    draw('slow', { active: !!inp.slowOn });
   }
 
   drawFlash() {

@@ -141,8 +141,8 @@ export class UI {
       <div class="panel">
         <h1>雷霆战机 RAIDEN STRIKE</h1>
         <p>纵版弹幕射击 · 判定点仅 9px，穿过去！</p>
-        <p class="hint">键盘 WASD/方向键移动 · 自动射击 · Shift 精确 · P/Esc 暂停 · M 静音</p>
-        <p class="hint">B 炸弹补给只可收集，不能主动引爆（本版本炸弹禁用）</p>
+        <p class="hint">键盘 WASD/方向键移动 · 自动射击 · K/X 炸弹 · Shift 精确 · P/Esc 暂停 · M 静音</p>
+        <p class="hint">手机：拖动屏幕移动并自动开火 · 右下角"炸"放炸弹 · 左下角"‖"暂停 · "慢"精确移动</p>
         <h3 class="sec">选择战机</h3>
         <div class="ships" id="ship-list">${this._shipCards()}</div>
         <button id="btn-start" class="primary" type="button" data-action="start">开始游戏</button>
