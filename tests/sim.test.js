@@ -19,6 +19,8 @@ const { Game } = await import('../src/game.js');
 const { STATES } = await import('../src/statemachine.js');
 const { VIEW } = await import('../src/config.js');
 const inputModule = await import('../src/input.js');
+const entitiesModule = await import('../src/entities.js');
+const { rollDrop } = await import('../src/drops.js');
 
 function newGame(input = fakeInput()) {
   return new Game({ renderer: fakeRenderer, audio: fakeAudio, input, backend: memBackend() });
@@ -182,4 +184,46 @@ test('v2.2 再来一局：gameover/win 态点重开必须真正进入 playing', 
   g2.sm.transition(STATES.WIN);
   g2.startRun();
   assert.equal(g2.sm.is(STATES.PLAYING), true, '通关后重开也应进入战斗');
+});
+
+test('v2.4 难度递进：血量/射速/数量/弹速随存活时间平滑上升并封顶', () => {
+  const g = newGame();
+  g.startRun();
+  // 0 秒：无加成
+  let s = g.rampScale();
+  assert.equal(s.hpMult, 1); assert.equal(s.fireMult, 1); assert.equal(s.extra, 0);
+  // 60 秒：明显加强
+  g.runTime = 60; s = g.rampScale();
+  assert.ok(s.hpMult > 1.3 && s.hpMult < 1.4, '血量应上升到约 1.36 倍，实际 ' + s.hpMult.toFixed(2));
+  assert.ok(s.fireMult > 1.3, '射速应上升，实际 ' + s.fireMult.toFixed(2));
+  assert.ok(s.speedMult > 1.1, '弹速应上升');
+  assert.ok(s.extra >= 1, '每波应追加敌机');
+  // 600 秒：封顶不再变难
+  g.runTime = 600; const cap = g.rampScale();
+  g.runTime = 120; const at120 = g.rampScale();
+  assert.equal(cap.hpMult, at120.hpMult, '到达上限后不应继续变难');
+});
+
+test('v2.4 敌机成长：血量按倍率放大，开火频率同步提高', () => {
+  const mod = entitiesModule;
+  const base = new mod.Enemy('fighter', 100, 0);
+  const grown = new mod.Enemy('fighter', 100, 0, { hpMult: 1.5, fireMult: 1.4 });
+  assert.ok(grown.hp > base.hp * 1.4, '血量应放大');
+  assert.equal(grown.maxHp, grown.hp, '血条上限应等于当前血量');
+  assert.ok(grown.fireRate > base.fireRate * 1.3, '射速应提高');
+});
+
+test('v2.4 道具随机爆率：护盾/生命可独立掉落，生命拾取加命', () => {
+  const g = newGame();
+  g.startRun();
+  const before = g.player.lives;
+  g.applyDrop({ kind: 'life', x: g.player.x, y: g.player.y });
+  assert.equal(g.player.lives, before + 1, '生命道具应加一条命');
+  // 独立爆率：未命中基础概率时仍可能掉护盾/生命
+  const seq = (vals) => { let i = 0; return () => vals[i++ % vals.length]; };
+  assert.equal(rollDrop('scout', () => 0.99), null, '未命中基础概率且独立爆率不中则无掉落');
+  // 第一次掷骰 > 基础概率（走独立爆率），第二次决定具体道具
+  assert.equal(rollDrop('scout', seq([0.5, 0.001])), 'life', '独立爆率掉生命');
+  assert.equal(rollDrop('scout', seq([0.5, 0.08])), 'shield', '独立爆率掉护盾');
+  assert.equal(rollDrop('scout', seq([0.5, 0.5])), null, '独立爆率未命中');
 });

@@ -83,14 +83,17 @@ export class Player {
 export class Enemy {
   constructor(type, x, y, opts = {}) {
     const spec = ENEMIES[type];
+    // v2.4 成长缩放：hpMult 提高血量（血条更长），fireMult 提高开火频率（攻击量）
+    const hpMult = opts.hpMult ?? 1;
+    const fireMult = opts.fireMult ?? 1;
     this.type = type;
     this.x = x; this.y = y;
-    this.hp = spec.hp; this.maxHp = spec.hp;
+    this.hp = Math.round(spec.hp * hpMult); this.maxHp = this.hp;
     this.radius = spec.radius;
     this.speed = spec.speed;
     this.score = spec.score;
     this.behavior = spec.behavior;
-    this.fireRate = spec.fireRate;
+    this.fireRate = spec.fireRate * fireMult;
     this.fireTimer = Math.random() * (1 / Math.max(0.01, spec.fireRate));
     this.t = 0;
     this.swayDir = opts.swayDir ?? 1;

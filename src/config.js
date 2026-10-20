@@ -67,15 +67,29 @@ export const ENEMIES = {
 export const ENEMY_HIT_FACTOR = 0.82; // 敌机命中半径系数
 
 // 掉落规格 (6.6)
+// v2.4：护盾/生命进入随机池，各自独立爆率（LIFE_CHANCE / SHIELD 权重），火力仍由重型必掉保底。
 export const DROPS = {
   BASE_CHANCE: 0.20,  // 每架敌机基础掉落概率（v2.3 上调，补给更充足）
-  WEIGHTS: { power: 0.50, bomb: 0.22, shield: 0.28 }, // 池内权重（v2.3 护盾占比提高）
+  WEIGHTS: { power: 0.42, bomb: 0.18, shield: 0.22, life: 0.18 }, // 池内权重（v2.4 加入生命）
   HEAVY_FORCED: ['tank', 'turret'], // 重型单位必掉，且优先火力
   POWER_FULL_BONUS: 50, // 满级后拾取火力道具折算分
   BOMB_MAX: 9,
   SHIELD_DURATION: 5, // 护盾无敌 5s
+  LIFE_CHANCE: 0.06,  // 额外判定：非重型敌机 6% 概率单独掉生命（与权重池叠加）
+  SHIELD_CHANCE: 0.10, // 额外判定：10% 概率单独掉护盾
 };
-export const LIFE_DROP_EVENT_ONLY = true; // 生命道具不在随机池，仅指定事件发放 (6.6)
+export const LIFE_DROP_EVENT_ONLY = false; // v2.4：生命道具进入随机池与独立爆率
+
+// v2.4 循序渐进难度曲线：敌机血量 / 攻击频率 / 弹速 / 波次数量随存活时间分档递增。
+// 每 TIME_STEP 秒升一档，最多 MAX_STEPS 档（到达上限后不再变难）。
+export const RAMP = {
+  TIME_STEP: 20,        // 每 20 秒一档
+  MAX_STEPS: 6,         // 最多 6 档（120 秒到顶）
+  HP_PER_STEP: 0.12,    // 每档敌机血量 +12%
+  FIRE_PER_STEP: 0.12,  // 每档开火频率 +12%（射速随时间平滑上升，120 秒时约 1.7 倍）
+  SPEED_PER_STEP: 0.05, // 每档敌弹速度 +5%
+  COUNT_PER_STEP: 0.6,  // 每档每波额外敌机数（向下取整累加）
+};
 
 // 计分 (6.6)
 export const SCORE = {

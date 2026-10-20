@@ -1,7 +1,7 @@
 // game.js — 主循环与编排 (FR-CORE / FR-CBT / FR-ENM / FR-LVL)。rAF + dt 钳制。
 import {
   VIEW, GLOBAL, PLAYER, ENEMIES, ENEMY_HIT_FACTOR, REGIONS, BOSS, DIFFICULTY,
-  SCORE, DROPS, BOMB, STORAGE_SCHEMA_VERSION,
+  SCORE, DROPS, BOMB, RAMP, STORAGE_SCHEMA_VERSION,
 } from './config.js';
 import { STATES, StateMachine } from './statemachine.js';
 import { Player, Enemy, Bullet, Particle, Boss } from './entities.js';
@@ -37,6 +37,7 @@ export class Game {
     this.diag = new URLSearchParams(location.search).get('diag') === '1';
     this.t = 0;
     this.toast = null; // 短提示（解锁/收集）文本 + 倒计时
+    this.runTime = 0;  // v2.4 本局存活时间（难度递进用）
     this.shipId = shipById(this.settings.ship).id; // 归一：未知/缺失回退到雷霆号
     if (!isUnlocked(this.shipId, this.data.unlocked)) this.shipId = 'raiden';
     performance.mark?.('boot_start');
@@ -56,6 +57,7 @@ export class Game {
     this.waves = new WaveDirector(0, this.settings.difficulty);
     this.score = 0; this.graze = new GrazeTracker();
     this.toast = null;
+    this.runTime = 0; // v2.4 难度递进计时归零
     // 结束态不能直连 playing（状态机合法转换：gameover/win -> ready -> playing）。
     // 少了这一步，"再来一局"点了会静默失败：状态仍是 gameover，结算面板一直盖着。
     if (this.sm.is(STATES.GAMEOVER) || this.sm.is(STATES.WIN)) this.sm.transition(STATES.READY);
@@ -118,8 +120,25 @@ export class Game {
     this.renderer.updateStars(dt, this.settings.motion === 'reduced');
   }
 
+  // v2.4 难度递进：随存活时间连续增长（不是一档一跳），含敌机射速。
+  // level = 存活秒数 / TIME_STEP，封顶 MAX_STEPS（120 秒后不再变难）。
+  rampLevel() {
+    return Math.max(0, Math.min(RAMP.MAX_STEPS, this.runTime / RAMP.TIME_STEP));
+  }
+  rampScale() {
+    const s = this.rampLevel();
+    return {
+      level: s,
+      hpMult: 1 + RAMP.HP_PER_STEP * s,      // 血量（血条更长）
+      fireMult: 1 + RAMP.FIRE_PER_STEP * s,  // 射速：开火频率随时间平滑上升
+      speedMult: 1 + RAMP.SPEED_PER_STEP * s,
+      extra: Math.floor(RAMP.COUNT_PER_STEP * s),
+    };
+  }
+
   update(dt) {
     const p = this.player;
+    this.runTime += dt; // v2.4 难度递进计时
     const inp = this.input ? this.input.state : { left: false, right: false, up: false, down: false, fire: false, precision: false };
     // 拖动目标
     if (this.input && this.input.dragId !== null) {
@@ -131,7 +150,7 @@ export class Game {
 
     // 波次
     if (this.waves && !this.waves.done) {
-      const spawned = this.waves.update(dt);
+      const spawned = this.waves.update(dt, this.rampScale()); // v2.4 按时间成长
       this.enemies.push(...spawned);
     }
     // Boss 触发：波次完成且场上无普通敌机
@@ -143,7 +162,7 @@ export class Game {
     // 敌机更新 + 开火
     for (const e of this.enemies) {
       const fire = e.update(dt, this.difficulty);
-      if (fire && this.boss === null) this.spawnEnemyBullet(e.x, e.y, this._aimAngle(e), 150 * this.difficulty.bulletSpeedMult, 4, false); // v2.3 弹速下调
+      if (fire && this.boss === null) this.spawnEnemyBullet(e.x, e.y, this._aimAngle(e), 150 * this.difficulty.bulletSpeedMult * this.rampScale().speedMult, 4, false); // v2.3 弹速下调 + v2.4 随时间回升
     }
     this.enemies = this.enemies.filter((e) => !e.dead);
 
@@ -279,6 +298,10 @@ export class Game {
       this.say(`炸弹 +1（剩余 ${this.player.bombs}）`, 1.4);
     }
     else if (d.kind === 'shield') this.player.giveShield();
+    else if (d.kind === 'life') {
+      this.player.lives = Math.min(PLAYER.LIVES_MAX, this.player.lives + 1);
+      this.say(`生命 +1（剩余 ${this.player.lives}）`, 1.6);
+    }
     this.drops = this.drops.filter((x) => x !== d);
   }
 

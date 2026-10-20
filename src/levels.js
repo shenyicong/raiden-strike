@@ -71,12 +71,24 @@ export class WaveDirector {
     this.idx = 0;
     this.done = false;
   }
-  update(dt) {
+  // scale = { hpMult, fireMult, extra } —— v2.4 由存活时间推导，实现循序渐进
+  update(dt, scale = null) {
     this.elapsed += dt;
     const spawned = [];
+    const hpMult = scale ? scale.hpMult : 1;
+    const fireMult = scale ? scale.fireMult : 1;
+    const extra = scale ? (scale.extra | 0) : 0;
     while (this.idx < this.timeline.length && this.elapsed >= this.timeline[this.idx].time) {
-      for (const e of this.timeline[this.idx].enemies) {
-        spawned.push(new Enemy(e.type, e.x, e.y, { targetX: e.targetX }));
+      const list = this.timeline[this.idx].enemies;
+      for (const e of list) {
+        spawned.push(new Enemy(e.type, e.x, e.y, { targetX: e.targetX, hpMult, fireMult }));
+      }
+      // 数量成长：从本波阵型里随机复制若干架，位置左右错开，保持阵型观感
+      for (let k = 0; k < extra && list.length; k++) {
+        const src = list[(k * 3 + this.idx) % list.length];
+        const off = ((k % 2) ? 1 : -1) * (24 + k * 6);
+        spawned.push(new Enemy(src.type, Math.max(16, Math.min(VIEW.W - 16, src.x + off)), src.y - 24,
+          { targetX: src.targetX, hpMult, fireMult }));
       }
       this.idx += 1;
     }

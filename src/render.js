@@ -265,7 +265,8 @@ export class Renderer {
   drawDrop(d) {
     const ctx = this.ctx;
     const reduced = this.settings && this.settings.motion === 'reduced';
-    const c = d.kind === 'power' ? '#ffd43b' : d.kind === 'bomb' ? '#39e7ff' : '#51cf66';
+    const c = d.kind === 'power' ? '#ffd43b' : d.kind === 'bomb' ? '#39e7ff'
+      : d.kind === 'life' ? '#ff6b6b' : '#51cf66';
     ctx.fillStyle = 'rgba(10,14,26,0.85)';
     ctx.strokeStyle = c; ctx.lineWidth = 1.6;
     ctx.beginPath(); ctx.arc(d.x, d.y, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
@@ -273,7 +274,7 @@ export class Renderer {
     ctx.beginPath(); ctx.arc(d.x, d.y, 4.5, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
     ctx.fillStyle = '#0a0e1a'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(d.kind[0].toUpperCase(), d.x, d.y + 3);
+    ctx.fillText(d.kind === 'life' ? '♥' : d.kind[0].toUpperCase(), d.x, d.y + 3);
   }
 
   drawParticle(pt) {

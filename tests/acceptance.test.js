@@ -83,11 +83,12 @@ test('掉落：重型单位必掉火力；随机按权重', () => {
   assert.equal(rollDrop('scout', () => 0.99), null);
   // 基础概率内(0.0) 且权重段 <0.55 -> power
   assert.equal(rollDrop('scout', seq([0.0, 0.0])), 'power');
-  assert.equal(rollDrop('scout', seq([0.0, 0.6])), 'bomb');   // 0.55–0.80
-  assert.equal(rollDrop('scout', seq([0.0, 0.9])), 'shield'); // >0.80
-  // v2.3：掉落率 0.14 -> 0.20，首区期望火力道具 7.8、能量 265（同一推导口径重算）
-  assert.ok(Math.abs(expectedPowerItems(48, 3) - 7.8) < 0.01);
-  assert.ok(Math.abs(expectedPowerEnergy(48, 3) - 265.2) < 0.5);
+  assert.equal(rollDrop('scout', seq([0.0, 0.5])), 'bomb');   // 0.42–0.60
+  assert.equal(rollDrop('scout', seq([0.0, 0.7])), 'shield'); // 0.60–0.82
+  assert.equal(rollDrop('scout', seq([0.0, 0.9])), 'life');   // >0.82
+  // v2.4：权重池加入生命后，首区期望火力道具 7.03、能量 239（同一推导口径重算）
+  assert.ok(Math.abs(expectedPowerItems(48, 3) - 7.03) < 0.01);
+  assert.ok(Math.abs(expectedPowerEnergy(48, 3) - 239.1) < 0.5);
 });
 
 // ── TC-ENM-01 Boss 三阶段阈值 + 每阶段 ≥6 秒 ──

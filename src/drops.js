@@ -6,19 +6,31 @@ function weightedPick(rng) {
   const r = rng();
   if (r < w.power) return 'power';
   if (r < w.power + w.bomb) return 'bomb';
-  return 'shield';
+  if (r < w.power + w.bomb + w.shield) return 'shield';
+  return 'life';
 }
 
-// 击破敌机时决定掉落。返回 'power' | 'bomb' | 'shield' | null。
-// 重型单位(tank/turret)必掉且优先火力；其余按 BASE_CHANCE 与池内权重。
-export function rollDrop(enemyType, rng = Math.random) {
-  if (DROPS.HEAVY_FORCED.includes(enemyType)) return 'power';
-  if (rng() < DROPS.BASE_CHANCE) return weightedPick(rng);
+// v2.4 独立爆率：护盾/生命在权重池之外再各自掷一次骰子（低概率、可叠加触发）。
+export function bonusRoll(rng = Math.random) {
+  const life = DROPS.LIFE_CHANCE || 0;
+  const shield = DROPS.SHIELD_CHANCE || 0;
+  const r = rng(); // 单次掷骰：life 段 -> shield 段 -> 无
+  if (r < life) return 'life';
+  if (r < life + shield) return 'shield';
   return null;
 }
 
+// 击破敌机时决定掉落。返回 'power' | 'bomb' | 'shield' | 'life' | null。
+// 重型单位(tank/turret)必掉火力；其余按 BASE_CHANCE + 池内权重，
+// 未命中基础概率时仍按独立爆率掷一次护盾/生命（v2.4）。
+export function rollDrop(enemyType, rng = Math.random) {
+  if (DROPS.HEAVY_FORCED.includes(enemyType)) return 'power';
+  if (rng() < DROPS.BASE_CHANCE) return weightedPick(rng);
+  return bonusRoll(rng);
+}
+
 // 期望统计（仅供测试/平衡校验，非运行期调用）：
-// 每区约 48 架 ×14% ≈ 6.7 次随机掉落；×55% + 3 个重型必掉 ≈ 6.7 火力道具；×34 ≈ 228 能量。
+// v2.4 口径：每区约 48 架 ×20% ≈ 9.6 次随机掉落；×42% + 3 个重型必掉 ≈ 火力道具数。
 export function expectedPowerItems(regionEnemyCount = 48, heavyCount = 3) {
   const randomDrops = regionEnemyCount * DROPS.BASE_CHANCE;
   return randomDrops * DROPS.WEIGHTS.power + heavyCount;
