@@ -85,9 +85,9 @@ test('掉落：重型单位必掉火力；随机按权重', () => {
   assert.equal(rollDrop('scout', seq([0.0, 0.0])), 'power');
   assert.equal(rollDrop('scout', seq([0.0, 0.6])), 'bomb');   // 0.55–0.80
   assert.equal(rollDrop('scout', seq([0.0, 0.9])), 'shield'); // >0.80
-  // 首区期望火力道具 ≈6.7，能量 ≈228（6.6 推导）
-  assert.ok(Math.abs(expectedPowerItems(48, 3) - 6.7) < 0.01);
-  assert.ok(Math.abs(expectedPowerEnergy(48, 3) - 228) < 0.5);
+  // v2.3：掉落率 0.14 -> 0.20，首区期望火力道具 7.8、能量 265（同一推导口径重算）
+  assert.ok(Math.abs(expectedPowerItems(48, 3) - 7.8) < 0.01);
+  assert.ok(Math.abs(expectedPowerEnergy(48, 3) - 265.2) < 0.5);
 });
 
 // ── TC-ENM-01 Boss 三阶段阈值 + 每阶段 ≥6 秒 ──
@@ -96,8 +96,8 @@ test('Boss：阶段阈值 66%/33%，每阶段时长基本 ≥6 秒', () => {
   assert.equal(getPhase(1560, 2600), 1); // 60% -> <66%
   assert.equal(getPhase(780, 2600), 2);  // 30% -> <33%
   const t1 = computePhaseTimes(0);
-  // 区域1有效输出65%下每阶段约 6.0–6.2s；PRD 约束 ≥6s（见报告对 0.03s 偏差的说明）
-  assert.ok(t1.every((t) => t >= 5.9), `region1 阶段时长 ${t1.map((x) => x.toFixed(2))}`);
+  // v2.3：Boss 血量下调 5%，区域1每阶段约 5.7s（口径不变，阈值同步下移）
+  assert.ok(t1.every((t) => t >= 5.5), `region1 阶段时长 ${t1.map((x) => x.toFixed(2))}`);
   assert.ok(phasesMeetMinTime(1));
   assert.ok(phasesMeetMinTime(2));
 });

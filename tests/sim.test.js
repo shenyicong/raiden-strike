@@ -154,7 +154,7 @@ test('v2.1 战机：开局按所选机型生效，打完第 1 区解锁重装堡
   g.startRun();
   assert.equal(g.player.ship.id, 'phantom');
   assert.equal(g.player.hitR, 6, '幻影判定 6px');
-  assert.equal(g.player.lives, 2, '幻影生命 -1（标准难度 3）');
+  assert.equal(g.player.lives, 3, '幻影生命 -1（v2.3 标准难度 4）');
   // 击破第 1 区 Boss -> 到达第 2 区
   g.waves.done = true; g.enemies = [];
   g.step(1 / 60, performance.now());

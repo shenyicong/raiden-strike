@@ -14,7 +14,7 @@ export function buildTimeline(regionIndex, difficultyKey = 'standard') {
   let t = 2.2; // 首波前置间隔 (6.7)
   for (let w = 0; w < waves; w++) {
     const formation = FORMATIONS[w % FORMATIONS.length]; // 同区不重复 (FR-ENM-02)
-    const count = Math.max(3, Math.round((4 + w) * (0.6 + 0.4 * density)));
+    const count = Math.max(3, Math.round((3 + w * 0.85) * (0.6 + 0.4 * density))); // v2.3 同波敌机数约 -20%
     const enemies = spawnFormation(formation, w, regionIndex, count);
     timeline.push({ time: t, enemies });
     t += region.waveTotal / waves; // 均匀分布，总时长≈waveTotal

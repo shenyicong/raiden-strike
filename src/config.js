@@ -56,19 +56,20 @@ export const POWER_PER_ITEM = 34; // 单个火力道具能量 (6.6 统一)
 export const MAX_LEVEL = WEAPONS.length;
 
 // 敌机规格 (6.4)。命中判定取半径的 0.82 倍（宽容处理）。
+// v2.3 难度下调：血量约 -12%、速度约 -12%、开火频率约 -25%（分值保持不变）
 export const ENEMIES = {
-  scout:    { hp: 16,  radius: 13, speed: 130, fireRate: 0,    score: 100, behavior: 'straight' },
-  fighter:  { hp: 34,  radius: 16, speed: 95,  fireRate: 1.35, score: 180, behavior: 'sway' },
-  tank:     { hp: 110, radius: 24, speed: 58,  fireRate: 0.9,  score: 420, behavior: 'slow' },
-  kamikaze: { hp: 20,  radius: 14, speed: 210, fireRate: 0,    score: 220, behavior: 'dive' },
-  turret:   { hp: 70,  radius: 18, speed: 45,  fireRate: 1.6,  score: 260, behavior: 'static' },
+  scout:    { hp: 14, radius: 13, speed: 115, fireRate: 0,    score: 100, behavior: 'straight' },
+  fighter:  { hp: 30, radius: 16, speed: 84,  fireRate: 1.00, score: 180, behavior: 'sway' },
+  tank:     { hp: 95, radius: 24, speed: 52,  fireRate: 0.70, score: 420, behavior: 'slow' },
+  kamikaze: { hp: 18, radius: 14, speed: 182, fireRate: 0,    score: 220, behavior: 'dive' },
+  turret:   { hp: 60, radius: 18, speed: 42,  fireRate: 1.15, score: 260, behavior: 'static' },
 };
 export const ENEMY_HIT_FACTOR = 0.82; // 敌机命中半径系数
 
 // 掉落规格 (6.6)
 export const DROPS = {
-  BASE_CHANCE: 0.14,  // 每架敌机基础掉落概率
-  WEIGHTS: { power: 0.55, bomb: 0.25, shield: 0.20 }, // 池内权重
+  BASE_CHANCE: 0.20,  // 每架敌机基础掉落概率（v2.3 上调，补给更充足）
+  WEIGHTS: { power: 0.50, bomb: 0.22, shield: 0.28 }, // 池内权重（v2.3 护盾占比提高）
   HEAVY_FORCED: ['tank', 'turret'], // 重型单位必掉，且优先火力
   POWER_FULL_BONUS: 50, // 满级后拾取火力道具折算分
   BOMB_MAX: 9,
@@ -88,17 +89,17 @@ export const SCORE = {
 export const REGIONS = [
   {
     id: 1, name: '近地轨道', bossName: '哨戒舰 · 铁翼',
-    bossHp: 2600, waves: 9, waveTotal: 25.0,
+    bossHp: 2470, waves: 9, waveTotal: 27.5,
     palette: { top: '#0b1026', bottom: '#1b2a4a', accent: '#5fa8ff' },
   },
   {
     id: 2, name: '陨石带', bossName: '重型轰炸舰 · 熔核',
-    bossHp: 4200, waves: 8, waveTotal: 26.4,
+    bossHp: 3990, waves: 8, waveTotal: 29.0,
     palette: { top: '#1a1208', bottom: '#3a2a12', accent: '#ff9a3c' },
   },
   {
     id: 3, name: '母舰外围', bossName: '旗舰 · 天穹之影',
-    bossHp: 6400, waves: 8, waveTotal: 27.2,
+    bossHp: 6080, waves: 8, waveTotal: 30.0,
     palette: { top: '#0a0418', bottom: '#2a0f3a', accent: '#c77dff' },
   },
 ];
@@ -107,7 +108,7 @@ export const REGIONS = [
 export const BOSS = {
   PHASE_THRESHOLDS: [0.66, 0.33], // 血量降至 66% / 33% 切阶段
   PHASE_SPEED_MULT: [1.0, 1.18, 1.36],
-  PHASE_INTERVAL: [1.5, 1.25, 1.0], // 发射间隔 (秒)
+  PHASE_INTERVAL: [1.8, 1.5, 1.2], // 发射间隔 (秒)（v2.3 放宽，弹幕更疏）
   PHASE_SWAY_MULT: [1.0, 1.5, 1.5],
   SWITCH_CLEAR_TIME: 0.8, // 切换时清空敌弹并停火 (秒)
   ENTER_TIME: 2.2,        // 入场演出 (秒)
@@ -129,9 +130,10 @@ export const HIT_FEEDBACK = {
 };
 
 // 难度分层 (FR-LVL-04 / 8.3 可砍，默认标准)
+// v2.3：标准档整体调软（敌机更少、瞄准有偏差、弹速更慢、初始 4 命）
 export const DIFFICULTY = {
-  standard: { label: '标准', bulletDensity: 1.0,  aimError: 0,    intervalMult: 1.0,  initLives: 3, bulletSpeedMult: 1.0 },
-  casual:   { label: '休闲', bulletDensity: 0.8,  aimError: 40,   intervalMult: 1.15, initLives: 5, bulletSpeedMult: 1.0 },
+  standard: { label: '标准', bulletDensity: 0.9,  aimError: 25,   intervalMult: 1.15, initLives: 4, bulletSpeedMult: 0.85 },
+  casual:   { label: '休闲', bulletDensity: 0.7,  aimError: 60,   intervalMult: 1.35, initLives: 6, bulletSpeedMult: 0.72 },
 };
 
 // 性能预算参考 (5.1) — 仅用于诊断面板展示/验收口径

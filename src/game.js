@@ -143,7 +143,7 @@ export class Game {
     // 敌机更新 + 开火
     for (const e of this.enemies) {
       const fire = e.update(dt, this.difficulty);
-      if (fire && this.boss === null) this.spawnEnemyBullet(e.x, e.y, this._aimAngle(e), 180 * this.difficulty.bulletSpeedMult, 4, false);
+      if (fire && this.boss === null) this.spawnEnemyBullet(e.x, e.y, this._aimAngle(e), 150 * this.difficulty.bulletSpeedMult, 4, false); // v2.3 弹速下调
     }
     this.enemies = this.enemies.filter((e) => !e.dead);
 
@@ -207,7 +207,7 @@ export class Game {
   fireBossPattern() {
     const b = this.boss;
     const pat = patternForPhase(b.phase, b.patternIndex);
-    const speed = 160 * BOSS.PHASE_SPEED_MULT[b.phase] * this.difficulty.bulletSpeedMult;
+    const speed = 132 * BOSS.PHASE_SPEED_MULT[b.phase] * this.difficulty.bulletSpeedMult; // v2.3 弹速下调
     if (pat === 'aimed') {
       const a = Math.atan2(this.player.y - b.y, this.player.x - b.x);
       this.spawnEnemyBullet(b.x, b.y, a, speed, 5);
