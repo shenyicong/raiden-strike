@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🚀 雷霆战机 · RAIDEN STRIKE **V2.0**
+# 🚀 雷霆战机 · RAIDEN STRIKE **V2.6**
 
 **纯原生 HTML5 + Canvas 的街机纵版弹幕射击游戏 · 零依赖 · 零图片资源 · 零构建**
 
@@ -8,7 +8,7 @@
 [![JS](https://img.shields.io/badge/JavaScript-ES%20Modules-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](#)
 [![Deps](https://img.shields.io/badge/Dependencies-0-00ff9d?style=flat-square)](#)
 [![License](https://img.shields.io/badge/License-MIT-39e7ff?style=flat-square)](#)
-[![Version](https://img.shields.io/badge/Version-2.0.0-5fa8ff?style=flat-square)](#)
+[![Version](https://img.shields.io/badge/Version-2.6.0-5fa8ff?style=flat-square)](#)
 
 ### ▶ 在线试玩 https://shenyicong.github.io/raiden-strike/
 
@@ -152,7 +152,7 @@ raiden-strike/
 ├── index.html            # 入口页面（需静态服务器；或用下面单文件版）
 ├── raiden-strike.html    # ★ V2.0 单文件自包含版：双击即玩，修复 file:// 打不开
 ├── dist.bundle.js        # 单文件版内联脚本（供无头冒烟测试）
-├── package.json          # version 2.0.0
+├── package.json          # version 2.6.0（与 src/config.js 的 VERSION 同步）
 ├── LICENSE
 ├── src/                  # 17 个 ES Module（开发 / 测试用）
 │   ├── config.js         # ★ 所有平衡性参数（改这里调难度 / 手感）

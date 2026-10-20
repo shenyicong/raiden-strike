@@ -1,6 +1,9 @@
 // config.js — 集中数值规格 (PRD 第六章)。调平衡只改这里，逻辑不依赖字面量。
 // NFR-MAINT-01: 全部平衡性参数集中于单一配置文件。
 
+// 游戏版本号：标题界面 / README 徽章 / package.json 均以此为准，随版本更新同步修改。
+export const VERSION = '2.6.0';
+
 export const VIEW = {
   W: 480,            // 逻辑分辨率宽 (6.1)
   H: 720,            // 逻辑分辨率高

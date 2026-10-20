@@ -5,6 +5,7 @@
 //     任何一次查不到节点都不允许抛错拖死整个游戏（"黑屏"）。
 import { DIFFICULTY } from './config.js';
 import { SHIPS } from './config.js';
+import { VERSION } from './config.js';
 import { isUnlocked, unlockText } from './ships.js';
 
 export class UI {
@@ -141,7 +142,7 @@ export class UI {
   title() {
     this._wrap(`
       <div class="panel">
-        <h1>雷霆战机 RAIDEN STRIKE</h1>
+        <h1>雷霆战机 RAIDEN STRIKE <span class="ver">v${VERSION.split('.').slice(0, 2).join('.')}</span></h1>
         <p>纵版弹幕射击 · 判定点仅 9px，穿过去！</p>
         <p class="hint">键盘 WASD/方向键移动 · 自动射击 · K/X 炸弹 · Shift 精确 · P/Esc 暂停 · M 静音</p>
         <p class="hint">手机：拖动屏幕移动并自动开火 · 右下角"炸"放炸弹 · 左下角"‖"暂停 · "慢"精确移动</p>
