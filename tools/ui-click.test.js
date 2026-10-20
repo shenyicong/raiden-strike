@@ -1,0 +1,103 @@
+// tools/ui-click.test.js — 验证"每帧 sync 后按钮仍可点击"（黑屏之外的第二类致命 bug）
+//
+// V2.0 改用「事件委托」：ui.js 只在 overlay 上挂一个 click 监听器，按钮本身不绑定
+// onclick。因此无论标题页 innerHTML 是否每帧重建，点击都通过冒泡到 overlay 的委托
+// 监听器解析 data-action —— 这正是修复"点不动"的核心机制。本测试据此还原真实点击。
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+// ---- 最小 DOM 桩：支持事件委托所需的 API -----------------------------
+class FakeEl {
+  constructor(tag = 'div') {
+    this.tagName = tag;
+    this._html = '';
+    this.children = [];
+    this.style = {};
+    this.attrs = {};
+    this.className = '';
+    this.textContent = '';
+    this.parentElement = null;
+    this.listeners = {};
+  }
+  set innerHTML(v) {
+    this._html = v;
+    // 还原真实语义：innerHTML 赋新值 => 旧子节点全部销毁，重新解析
+    this.children = parseNodes(v).map((el) => { el.parentElement = this; return el; });
+  }
+  get innerHTML() { return this._html; }
+  appendChild(el) { el.parentElement = this; this.children.push(el); return el; }
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  hasAttribute(k) { return k in this.attrs; }
+  matches(sel) {
+    if (sel === '[data-action]') return this.hasAttribute('data-action');
+    if (sel === '[data-field]') return this.hasAttribute('data-field');
+    return false;
+  }
+  addEventListener(type, fn) { (this.listeners[type] || (this.listeners[type] = [])).push(fn); }
+  dispatch(type, event) { (this.listeners[type] || []).forEach((fn) => fn(event)); }
+  querySelector(sel) {
+    const id = sel.startsWith('#') ? sel.slice(1) : sel;
+    return this._find((c) => c.attrs.id === id);
+  }
+  _find(pred, node = this) {
+    for (const c of node.children) {
+      if (pred(c)) return c;
+      const r = this._find(pred, c);
+      if (r) return r;
+    }
+    return null;
+  }
+  focus() {}
+}
+
+// 解析全部开标签及其属性（id / data-action / data-field / type 等）
+function parseNodes(html) {
+  const nodes = [];
+  const re = /<(\w+)([^>]*)>/g;
+  let m;
+  while ((m = re.exec(html))) {
+    const el = new FakeEl(m[1]);
+    const are = /([\w-]+)="([^"]*)"/g;
+    let a;
+    while ((a = are.exec(m[2]))) el.attrs[a[1]] = a[2];
+    nodes.push(el);
+  }
+  return nodes;
+}
+
+test('UI 每帧 sync 后，开始按钮仍能通过事件委托点击（不依赖节点重建）', async () => {
+  // ui.js 内部使用全局 document，先注入最小桩
+  globalThis.document = { createElement: (tag) => new FakeEl(tag) };
+  const { UI } = await import('../src/ui.js');
+  const root = new FakeEl('div');
+  let started = 0;
+  const fakeGame = {
+    data: { best: null, top5: [] },
+    settings: { volume: { master: 70, sfx: 70, music: 50 }, hitboxDot: true, motion: 'standard', difficulty: 'standard' },
+    score: 0, graze: { count: 0 },
+    persistSettings() {},
+  };
+
+  const ui = new UI(root, fakeGame);
+  ui.onAction = (a) => { if (a === 'start') started++; };
+
+  // 模拟游戏主循环跑 60 帧，每帧都调用 sync（这正是原 bug 的触发条件）
+  for (let i = 0; i < 60; i++) ui.sync('ready');
+
+  // 拿到当前 DOM 里带 data-action 的开始按钮
+  const btn = ui.overlay.querySelector('#btn-start');
+  assert.ok(btn, '标题页应存在开始按钮');
+  assert.equal(btn.hasAttribute('data-action'), true, '开始按钮必须带 data-action（委托解析依据）');
+
+  // 真实浏览器里 click 事件冒泡到 overlay 的委托监听器，由 _closest 解析 data-action
+  ui.overlay.dispatch('click', { target: btn, stopPropagation() {} });
+
+  // 再跑几帧（点击后若按钮被重建，委托监听仍在 overlay 上，不应失效）
+  for (let i = 0; i < 30; i++) ui.sync('ready');
+
+  const btn2 = ui.overlay.querySelector('#btn-start');
+  ui.overlay.dispatch('click', { target: btn2, stopPropagation() {} });
+
+  assert.equal(started, 2, `两次点击应各触发一次 start，实际 ${started} 次`);
+});

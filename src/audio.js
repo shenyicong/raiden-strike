@@ -1,151 +1,92 @@
-/**
- * audio.js —— 纯 WebAudio 合成音效，零外部资源
- * 所有声音都由振荡器/噪声实时合成，不加载任何音频文件。
- */
+// audio.js — WebAudio 程序化音频 (FR-PRS-03 / FR-SYS-01)。三路总线：master/sfx/music。
+import { busGains } from './settings.js';
 
-let ctx = null;
-let master = null;
-let noiseBuf = null;
-let muted = false;
+export class AudioEngine {
+  constructor() {
+    this.ctx = null;
+    this.buses = null; // {master, sfx, music}
+    this.musicTimer = null;
+    this.unlocked = false;
+    this.suspendedSince = 0;
+  }
 
-function ac() {
-  if (!ctx) {
+  // 首次用户交互时调用（FR-CORE-02 / FR-SYS-08）。
+  init() {
+    if (this.ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return null;
-    ctx = new AC();
-    master = ctx.createGain();
-    master.gain.value = 0.55;
-    master.connect(ctx.destination);
+    if (!AC) return;
+    this.ctx = new AC();
+    this.buses = {
+      master: this.ctx.createGain(),
+      sfx: this.ctx.createGain(),
+      music: this.ctx.createGain(),
+    };
+    this.buses.sfx.connect(this.buses.master);
+    this.buses.music.connect(this.buses.master);
+    this.buses.master.connect(this.ctx.destination);
+    this.applyGains({ master: 70, sfx: 70, music: 50 });
   }
-  return ctx;
-}
 
-/** 首次用户交互时解锁音频上下文 */
-export function unlock() {
-  const c = ac();
-  if (c && c.state === 'suspended') c.resume();
-}
-
-export function setMuted(v) {
-  muted = v;
-  if (master) master.gain.value = v ? 0 : 0.55;
-}
-
-export function isMuted() {
-  return muted;
-}
-
-function noise() {
-  const c = ac();
-  if (!c) return null;
-  if (!noiseBuf) {
-    const len = c.sampleRate * 0.6;
-    noiseBuf = c.createBuffer(1, len, c.sampleRate);
-    const d = noiseBuf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  applyGains(vol) {
+    if (!this.buses) return;
+    const g = busGains({ volume: vol });
+    const t = this.ctx.currentTime;
+    this.buses.master.gain.setTargetAtTime(g.master, t, 0.01);
+    this.buses.sfx.gain.setTargetAtTime(g.sfx, t, 0.01);
+    this.buses.music.gain.setTargetAtTime(g.music, t, 0.01);
   }
-  const src = c.createBufferSource();
-  src.buffer = noiseBuf;
-  return src;
-}
 
-/** 基础音：频率滑音 + 包络 */
-function tone({ freq = 440, to = freq, type = 'square', dur = 0.12, gain = 0.18, delay = 0 }) {
-  const c = ac();
-  if (!c || muted) return;
-  const t0 = c.currentTime + delay;
-  const osc = c.createOscillator();
-  const g = c.createGain();
-  osc.type = type;
-  osc.frequency.setValueAtTime(freq, t0);
-  osc.frequency.exponentialRampToValueAtTime(Math.max(20, to), t0 + dur);
-  g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(gain, t0 + 0.008);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  osc.connect(g).connect(master);
-  osc.start(t0);
-  osc.stop(t0 + dur + 0.02);
-}
-
-/** 噪声爆裂 */
-function burst({ dur = 0.3, gain = 0.25, from = 2200, to = 200, delay = 0 }) {
-  const c = ac();
-  if (!c || muted) return;
-  const src = noise();
-  if (!src) return;
-  const t0 = c.currentTime + delay;
-  const filter = c.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.setValueAtTime(from, t0);
-  filter.frequency.exponentialRampToValueAtTime(Math.max(80, to), t0 + dur);
-  const g = c.createGain();
-  g.gain.setValueAtTime(gain, t0);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  src.connect(filter).connect(g).connect(master);
-  src.start(t0);
-  src.stop(t0 + dur + 0.02);
-}
-
-export const sfx = {
-  shoot() {
-    tone({ freq: 900, to: 460, type: 'square', dur: 0.05, gain: 0.045 });
-  },
-  enemyShoot() {
-    tone({ freq: 320, to: 160, type: 'sawtooth', dur: 0.07, gain: 0.035 });
-  },
-  hit() {
-    tone({ freq: 260, to: 180, type: 'square', dur: 0.03, gain: 0.035 });
-  },
-  explode() {
-    burst({ dur: 0.32, gain: 0.28, from: 1800, to: 120 });
-    tone({ freq: 120, to: 40, type: 'sine', dur: 0.3, gain: 0.14 });
-  },
-  bigExplode() {
-    burst({ dur: 0.7, gain: 0.4, from: 2400, to: 60 });
-    tone({ freq: 90, to: 28, type: 'sine', dur: 0.7, gain: 0.2 });
-    tone({ freq: 200, to: 50, type: 'sawtooth', dur: 0.35, gain: 0.1, delay: 0.08 });
-  },
-  pickup() {
-    tone({ freq: 620, to: 980, type: 'triangle', dur: 0.1, gain: 0.13 });
-    tone({ freq: 980, to: 1320, type: 'triangle', dur: 0.08, gain: 0.1, delay: 0.07 });
-  },
-  powerUp() {
-    tone({ freq: 440, to: 660, type: 'square', dur: 0.09, gain: 0.1 });
-    tone({ freq: 660, to: 880, type: 'square', dur: 0.09, gain: 0.1, delay: 0.08 });
-    tone({ freq: 880, to: 1180, type: 'square', dur: 0.12, gain: 0.1, delay: 0.16 });
-  },
-  bomb() {
-    burst({ dur: 1.0, gain: 0.42, from: 3200, to: 50 });
-    tone({ freq: 70, to: 24, type: 'sine', dur: 1.0, gain: 0.24 });
-  },
-  damage() {
-    burst({ dur: 0.25, gain: 0.2, from: 900, to: 90 });
-    tone({ freq: 300, to: 80, type: 'sawtooth', dur: 0.22, gain: 0.12 });
-  },
-  alarm() {
-    for (let i = 0; i < 3; i++) {
-      tone({ freq: 880, to: 660, type: 'sawtooth', dur: 0.14, gain: 0.09, delay: i * 0.22 });
+  // 解锁音频上下文；返回是否成功。失败不阻断游戏 (NFR-REL-03 / R-01)。
+  async unlock() {
+    this.init();
+    if (!this.ctx) return false;
+    if (this.ctx.state === 'suspended') {
+      try { await this.ctx.resume(); } catch { return false; }
     }
-  },
-  levelClear() {
-    const notes = [523, 659, 784, 1046];
-    notes.forEach((f, i) =>
-      tone({ freq: f, to: f, type: 'triangle', dur: 0.16, gain: 0.12, delay: i * 0.11 })
-    );
-  },
-  gameOver() {
-    const notes = [440, 392, 330, 262];
-    notes.forEach((f, i) =>
-      tone({ freq: f, to: f * 0.98, type: 'triangle', dur: 0.3, gain: 0.13, delay: i * 0.2 })
-    );
-  },
-  win() {
-    const notes = [523, 659, 784, 1046, 1318];
-    notes.forEach((f, i) =>
-      tone({ freq: f, to: f, type: 'square', dur: 0.18, gain: 0.1, delay: i * 0.1 })
-    );
-  },
-  ui() {
-    tone({ freq: 700, to: 900, type: 'square', dur: 0.05, gain: 0.06 });
-  },
-};
+    this.unlocked = this.ctx.state === 'running';
+    if (this.ctx.state === 'suspended') this.suspendedSince = performance.now();
+    return this.unlocked;
+  }
+
+  // 静音快捷键 M 与总线联动 (FR-SYS-05)。
+  setMuted(muted) {
+    if (this.buses) this.buses.master.gain.value = muted ? 0 : 1;
+  }
+
+  _blip(freq, dur, type = 'square', bus = 'sfx', gain = 0.3) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    const t = this.ctx.currentTime;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.buses[bus]);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+
+  // 六类音效 (FR-PRS-03)。
+  sfx(name) {
+    switch (name) {
+      case 'shoot':    this._blip(880, 0.06, 'square', 'sfx', 0.12); break;
+      case 'explosion':this._blip(120, 0.25, 'sawtooth', 'sfx', 0.3); break;
+      case 'pickup':   this._blip(660, 0.08, 'triangle', 'sfx', 0.25); break;
+      case 'powerup':  this._blip(520, 0.12, 'square', 'sfx', 0.3); this._blip(780, 0.12, 'square', 'sfx', 0.25); break;
+      case 'alarm':    this._blip(300, 0.18, 'sawtooth', 'sfx', 0.25); break;
+      case 'win':      this._blip(523, 0.2, 'triangle', 'music', 0.3); this._blip(784, 0.3, 'triangle', 'music', 0.3); break;
+    }
+  }
+
+  // 极简背景音乐循环（音乐总线）。
+  startMusic() {
+    if (!this.ctx || this.musicTimer) return;
+    const notes = [220, 277, 330, 277];
+    let i = 0;
+    this.musicTimer = setInterval(() => {
+      if (this.ctx.state === 'running') this._blip(notes[i % notes.length], 0.4, 'triangle', 'music', 0.18);
+      i++;
+    }, 480);
+  }
+  stopMusic() { if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; } }
+}

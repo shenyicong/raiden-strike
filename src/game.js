@@ -1,684 +1,294 @@
-/**
- * game.js —— 主游戏类：状态机、关卡流程、实体调度、渲染
- */
-
+// game.js — 主循环与编排 (FR-CORE / FR-CBT / FR-ENM / FR-LVL)。rAF + dt 钳制。
 import {
-  VIEW, PLAYER, WEAPON, DROP, LEVELS, BOSS_DELAY, SCORE, COLORS,
+  VIEW, GLOBAL, PLAYER, ENEMIES, ENEMY_HIT_FACTOR, REGIONS, BOSS, DIFFICULTY,
+  SCORE, DROPS, BOMB, STORAGE_SCHEMA_VERSION,
 } from './config.js';
-import { Input } from './input.js';
-import { FX } from './fx.js';
-import { Player } from './player.js';
-import { Bullets } from './bullets.js';
-import { Enemy, Boss, spawnFormation } from './enemies.js';
-import { drawDrop } from './sprites.js';
-import { HUD } from './hud.js';
-import { sfx, unlock } from './audio.js';
-import { rand, chance, clamp, circleHit, formatScore, TAU } from './utils.js';
-
-export const STATE = {
-  READY: 'ready',
-  PLAYING: 'playing',
-  PAUSED: 'paused',
-  CLEAR: 'clear',
-  GAMEOVER: 'gameover',
-  WIN: 'win',
-};
+import { STATES, StateMachine } from './statemachine.js';
+import { Player, Enemy, Bullet, Particle, Boss } from './entities.js';
+import { GrazeTracker } from './scoring.js';
+import { rollDrop } from './drops.js';
+import { getPhase, patternForPhase, phaseInterval } from './boss.js';
+import { WaveDirector } from './levels.js';
+import { busGains, motionFlags, hitboxVisible } from './settings.js';
+import { load, save, recordRun, emptyData } from './storage.js';
+import { clamp } from './util.js';
 
 export class Game {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: false });
-    this.input = new Input(canvas);
-    this.fx = new FX();
-    this.player = new Player(this.fx);
-    this.bullets = new Bullets();
-    this.hud = new HUD(this);
-
-    this.state = STATE.READY;
-    this.time = 0;
-    this.score = 0;
-    this.kills = 0;
-    this.levelIndex = 0;
-    this.enemies = [];
-    this.pending = [];       // 待出场的阵型
-    this.drops = [];
+  constructor({ renderer, audio, input, backend, prefersReducedMotion = false }) {
+    this.renderer = renderer;
+    this.audio = audio;
+    this.input = input;
+    this.backend = backend;
+    this.sm = new StateMachine(STATES.READY);
+    this.settings = load(backend, prefersReducedMotion).settings;
+    this.data = load(backend, prefersReducedMotion);
+    this.player = new Player();
+    this.enemies = []; this.pBullets = []; this.eBullets = []; this.particles = []; this.drops = [];
     this.boss = null;
-
-    this.waveQueue = [];
-    this.levelTimer = 0;
-    this.bossTimer = -1;
-    this.clearTimer = 0;
-    this.slowMo = 0;
-    this.banner = null;
-    this.autoFire = false;      // 触屏模式自动开火
-    this.pointerSeen = false;
-    this._bossRewarded = false;
-    this._raf = null;
-    this._last = 0;
-    this._acc = 0;
-    this._fps = 60;
-    this._fpsAcc = 0;
-    this._fpsFrames = 0;
-
-    this.bindOverlay();
-    this.bindTouch();
+    this.regionIndex = 0;
+    this.waves = null;
+    this.score = 0; this.graze = new GrazeTracker();
+    this.muted = false;
+    this.flash = 0; this.shake = 0;
+    this.transition = 0; // 区域过渡无敌计时
+    this.runId = crypto.randomUUID?.() || `r${Date.now()}`;
+    this.runStart = 0; this.fpsSamples = []; this.lastFpsT = 0; this.fpsFrames = 0;
+    this.diag = new URLSearchParams(location.search).get('diag') === '1';
+    this.t = 0;
+    performance.mark?.('boot_start');
   }
 
-  get level() {
-    return LEVELS[this.levelIndex];
-  }
-
-  /* ------------------------------------------------------------ *
-   * 生命周期
-   * ------------------------------------------------------------ */
-
-  bindOverlay() {
-    this.overlay = document.getElementById('overlay');
-    this.overlayTitle = document.getElementById('ovTitle');
-    this.overlaySub = document.getElementById('ovSub');
-    this.overlayStats = document.getElementById('ovStats');
-    this.overlayBtn = document.getElementById('ovBtn');
-    this.overlayHint = document.getElementById('ovHint');
-
-    this.overlayBtn.addEventListener('click', () => {
-      unlock();
-      sfx.ui();
-      if (this.state === STATE.READY || this.state === STATE.GAMEOVER || this.state === STATE.WIN) {
-        this.startRun();
-      } else if (this.state === STATE.PAUSED) {
-        this.resume();
-      }
-    });
-  }
-
-  /** 触屏设备：拖动即自动开火，并在开局提示一次 */
-  bindTouch() {
-    const isTouch = matchMedia('(hover: none) and (pointer: coarse)').matches;
-    this.touchMode = isTouch;
-    const hint = document.getElementById('touchHint');
-    this.canvas.addEventListener('pointerdown', (e) => {
-      if (e.pointerType === 'touch') {
-        this.pointerSeen = true;
-        this.autoFire = true;
-        if (hint && this.state === STATE.PLAYING) {
-          hint.classList.add('show');
-          setTimeout(() => hint.classList.remove('show'), 2600);
-        }
-      }
-    });
-    this.canvas.addEventListener('pointerup', (e) => {
-      if (e.pointerType === 'touch') this.autoFire = false;
-    });
-    if (isTouch && hint) hint.textContent = '拖动屏幕移动 · 自动射击';
-  }
-
-  start() {
-    this.resize();
-    addEventListener('resize', () => this.resize());
-    this._last = performance.now();
-    const loop = (now) => {
-      this._raf = requestAnimationFrame(loop);
-      let dt = (now - this._last) / 1000;
-      this._last = now;
-      if (dt > 0.1) dt = 0.1;      // 防止切标签页后瞬移
-      this.step(dt);
-    };
-    this._raf = requestAnimationFrame(loop);
-    this.showReady();
-  }
-
-  resize() {
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const w = VIEW.w;
-    const h = VIEW.h;
-    this.canvas.width = w * dpr;
-    this.canvas.height = h * dpr;
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.dpr = dpr;
-  }
+  get difficulty() { return DIFFICULTY[this.settings.difficulty] || DIFFICULTY.standard; }
 
   startRun() {
-    this.state = STATE.PLAYING;
-    this.score = 0;
-    this.kills = 0;
-    this.levelIndex = 0;
-    this.player.reset();
-    this.bullets.clear();
-    this.enemies.length = 0;
-    this.pending.length = 0;
-    this.drops.length = 0;
+    this.player = new Player();
+    this.player.lives = this.difficulty.initLives;
+    this.player.level = 1; this.player.energy = 0;
+    this.enemies = []; this.pBullets = []; this.eBullets = []; this.particles = []; this.drops = [];
     this.boss = null;
-    this.overlay.classList.remove('show');
-    this.loadLevel(0);
-    sfx.ui();
+    this.regionIndex = 0;
+    this.waves = new WaveDirector(0, this.settings.difficulty);
+    this.score = 0; this.graze = new GrazeTracker();
+    this.sm.transition(STATES.PLAYING);
+    this.runStart = performance.now();
+    performance.mark?.('run_start');
+    this.audio.unlock().then(() => this.audio.startMusic());
   }
 
-  showReady() {
-    this.state = STATE.READY;
-    this.hud.draw(this);
-    this.overlayTitle.textContent = '雷 霆 战 机';
-    this.overlaySub.textContent = 'RAIDEN STRIKE · 街机纵版弹幕射击';
-    this.overlayStats.innerHTML = `
-      <div class="keys">
-        <div><kbd>W A S D</kbd> / <kbd>方向键</kbd> 移动</div>
-        <div><kbd>空格</kbd> / <kbd>J</kbd> 射击（可长按）</div>
-        <div><kbd>K</kbd> / <kbd>X</kbd> 炸弹（清屏）</div>
-        <div><kbd>Shift</kbd> 精确移动（低速）</div>
-        <div><kbd>P</kbd> / <kbd>Esc</kbd> 暂停　<kbd>M</kbd> 静音</div>
-      </div>
-      <p class="tip">鼠标 / 手指也可直接拖动战机。吃 <b style="color:#39e7ff">P</b> 升级火力，<b style="color:#ffd166">B</b> 补给炸弹，<b style="color:#ff6b9d">♥</b> 加命。</p>
-    `;
-    this.overlayBtn.textContent = '开始任务';
-    this.overlayHint.textContent = '按 Enter / 空格 也可开始';
-    this.overlay.classList.add('show');
+  pauseToggle() {
+    if (this.sm.is(STATES.PLAYING)) this.sm.pause();
+    else if (this.sm.is(STATES.PAUSED)) this.sm.resume();
+  }
+  interrupt() { if (this.sm.is(STATES.PLAYING)) this.sm.pause(); }
+
+  useBomb() {
+    if (!this.sm.is(STATES.PLAYING) || this.player.bombs <= 0 || !this.player.alive) return;
+    this.player.bombs -= 1;
+    this.eBullets = []; // 0.3s 内清空（此处瞬时清空等效）
+    for (const e of this.enemies) e.hp -= BOMB.DAMAGE;
+    if (this.boss) this.boss.hp -= BOMB.DAMAGE;
+    this.player.invuln = Math.max(this.player.invuln, BOMB.INVULN);
+    this.flash = 0.6;
+    this.audio.sfx('explosion');
   }
 
-  pause() {
-    if (this.state !== STATE.PLAYING) return;
-    this.state = STATE.PAUSED;
-    this.overlayTitle.textContent = '暂 停';
-    this.overlaySub.textContent = `第 ${this.levelIndex + 1} 区 · ${this.level.name}`;
-    this.overlayStats.innerHTML = `<div class="keys"><div>得分 <b>${formatScore(this.score)}</b></div><div>击坠 <b>${this.kills}</b></div><div>火力 <b>Lv.${this.player.level}</b></div></div>`;
-    this.overlayBtn.textContent = '继续游戏';
-    this.overlayHint.textContent = '按 P / Esc 也可继续';
-    this.overlay.classList.add('show');
-  }
-
-  resume() {
-    if (this.state !== STATE.PAUSED) return;
-    this.state = STATE.PLAYING;
-    this._last = performance.now();
-    this.overlay.classList.remove('show');
-    sfx.ui();
-  }
-
-  togglePause() {
-    if (this.state === STATE.PLAYING) this.pause();
-    else if (this.state === STATE.PAUSED) this.resume();
-  }
-
-  gameOver() {
-    this.state = STATE.GAMEOVER;
-    sfx.gameOver();
-    this.overlayTitle.textContent = '任 务 失 败';
-    this.overlaySub.textContent = `止步于 第 ${this.levelIndex + 1} 区`;
-    this.overlayStats.innerHTML = this.statBlock();
-    this.overlayBtn.textContent = '重新出击';
-    this.overlayHint.textContent = '按 Enter 重新开始';
-    this.overlay.classList.add('show');
-  }
-
-  win() {
-    this.state = STATE.WIN;
-    sfx.win();
-    this.overlayTitle.textContent = '任 务 完 成';
-    this.overlaySub.textContent = '三区全清 · 敌旗舰已击沉';
-    this.overlayStats.innerHTML = this.statBlock() +
-      `<p class="tip">恭喜通关！截图纪念一下你的战绩吧。</p>`;
-    this.overlayBtn.textContent = '再来一局';
-    this.overlayHint.textContent = '按 Enter 重新开始';
-    this.overlay.classList.add('show');
-  }
-
-  statBlock() {
-    return `<div class="stats">
-      <div><span>总分</span><b>${formatScore(this.score)}</b></div>
-      <div><span>击坠</span><b>${this.kills}</b></div>
-      <div><span>到达区域</span><b>${this.levelIndex + 1} / ${LEVELS.length}</b></div>
-      <div><span>剩余生命</span><b>${Math.max(0, this.player.lives)}</b></div>
-      <div><span>用时</span><b>${Math.floor(this.time)}s</b></div>
-    </div>`;
-  }
-
-  /* ------------------------------------------------------------ *
-   * 关卡
-   * ------------------------------------------------------------ */
-
-  loadLevel(index) {
-    this.levelIndex = index;
-    const L = LEVELS[index];
-    this.bullets.clear();
-    this.enemies.length = 0;
-    this.pending.length = 0;
-    this.drops.length = 0;
-    this.boss = null;
-    this.bossTimer = -1;
-    this.levelTimer = 0;
-    this.clearTimer = 0;
-
-    // 复制波次脚本，避免修改源数据
-    this.waveQueue = L.waves.map((w) => ({ ...w, fired: false }));
-    this.banner = {
-      title: L.name,
-      sub: `AREA ${index + 1} / ${LEVELS.length}`,
-      life: 2.6,
-      maxLife: 2.6,
-    };
-    this.hud.setLevel(index);
-    sfx.alarm();
-  }
-
-  spawnFromPending(dt) {
-    for (let i = this.pending.length - 1; i >= 0; i--) {
-      const p = this.pending[i];
-      p.delay -= dt;
-      if (p.delay > 0) continue;
-      // 真正创建敌机
-      const e = new Enemy(p.type, p.spawnX, -34, {
-        hpMul: p.hpMul,
-        speedMul: p.speedMul,
-      });
-      e.targetY = p.targetY;
-      // 用「下沉到目标线再开始行为」的方式排出队形
-      e.spawnY = -34;
-      this.enemies.push(e);
-      this.pending.splice(i, 1);
-    }
-  }
-
-  updateWaves(dt) {
-    // Boss 已登场或正在倒数 → 停止刷怪
-    if (this.boss || this.clearTimer > 0) return;
-
-    // Boss 登场倒计时
-    if (this.bossTimer >= 0) {
-      this.bossTimer -= dt;
-      if (this.bossTimer <= 0) {
-        this.bossTimer = -1;
-        this.spawnBoss();
-      }
-      return;
-    }
-
-    // 全部波次已出完且场上清空 → 开始倒数 Boss
-    if (!this.waveQueue.length && !this.pending.length && !this.enemies.length) {
-      this.bossTimer = BOSS_DELAY;
-      return;
-    }
-
-    this.levelTimer += dt;
-    for (const w of this.waveQueue) {
-      if (!w.fired && this.levelTimer >= w.t) {
-        w.fired = true;
-        this.pending.push(
-          ...spawnFormation(w, 1 + this.levelIndex * 0.18, 1 + this.levelIndex * 0.08)
-        );
+  // 主循环步；dt 已钳制 0.1。仅 PLAYING 推进逻辑 (FR-CORE-03)。
+  step(dt, now) {
+    this.t += dt;
+    // 诊断帧率采样 (NFR-OBS-01)
+    if (this.diag) {
+      this.fpsFrames++;
+      if (now - this.lastFpsT >= 1000) {
+        const fps = this.fpsFrames * 1000 / (now - this.lastFpsT);
+        this.fpsSamples.push(fps); this.fpsFrames = 0; this.lastFpsT = now;
       }
     }
-    this.waveQueue = this.waveQueue.filter((w) => !w.fired);
-    this.spawnFromPending(dt);
+    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt / 0.12 * 0.6);
+    if (this.shake > 0) this.shake = Math.max(0, this.shake - dt);
+
+    if (this.sm.is(STATES.PLAYING)) this.update(dt);
+    this.renderer.updateStars(dt, this.settings.motion === 'reduced');
   }
 
-  spawnBoss() {
-    const L = this.level;
-    this.boss = new Boss(this.levelIndex + 1, L.bossName, L.bossHp);
-    this.hud.bossIntro = 2.4;
-    this.fx.shake = 10;
-    sfx.alarm();
-    // 清掉残余小怪，让 Boss 战干净
-    for (const e of this.enemies) {
-      if (e.alive) this.fx.explode(e.x, e.y, 0.8, e.color);
-    }
-    this.enemies.length = 0;
-    this.pending.length = 0;
-  }
-
-  /* ------------------------------------------------------------ *
-   * 主循环
-   * ------------------------------------------------------------ */
-
-  step(dt) {
-    this.input.beginFrame();
-
-    // FPS 统计
-    this._fpsAcc += dt;
-    this._fpsFrames++;
-    if (this._fpsAcc >= 0.5) {
-      this._fps = this._fpsFrames / this._fpsAcc;
-      this._fpsAcc = 0;
-      this._fpsFrames = 0;
-    }
-
-    // 全局按键
-    if (this.input.pressed('pause')) {
-      if (this.state === STATE.PLAYING) this.pause();
-      else if (this.state === STATE.PAUSED) this.resume();
-    }
-    if (this.state === STATE.READY || this.state === STATE.GAMEOVER || this.state === STATE.WIN) {
-      if (this.input.pressed('fire') || this.input.pressed('bomb')) {
-        unlock();
-        this.startRun();
-      }
-    }
-
-    const active = this.state === STATE.PLAYING;
-
-    if (active) {
-      this.time += dt;
-      this.updateGameplay(dt);
-    }
-
-    // 视觉表现始终推进（暂停时也保持轻微呼吸感，但很慢）
-    const vdt = active ? dt : dt * 0.25;
-    this.fx.update(vdt);
-    if (this.banner) {
-      this.banner.life -= dt;
-      if (this.banner.life <= 0) this.banner = null;
-    }
-    this.hud.update(dt);
-
-    this.render();
-  }
-
-  updateGameplay(dt) {
+  update(dt) {
     const p = this.player;
+    const inp = this.input ? this.input.state : { left: false, right: false, up: false, down: false, fire: false, precision: false };
+    // 拖动目标
+    if (this.input && this.input.dragId !== null) {
+      p.x = clamp(this.input.dragX, p.hitR, VIEW.W - p.hitR);
+      p.y = clamp(this.input.dragY, p.hitR, VIEW.H - p.hitR);
+    }
+    const shots = p.update(dt, inp, inp.precision);
+    if (shots) { for (const s of shots) this.pBullets.push(new Bullet(s.x, s.y, s.vx, s.vy, { dmg: s.dmg, fromPlayer: true, homing: s.homing, r: 4 })); this.audio.sfx('shoot'); }
 
-    // 玩家
-    p.update(dt, this.input, this.bullets);
-
-    // 炸弹
-    if (this.input.pressed('bomb')) {
-      p.useBomb(this.bullets, this.enemies, this.boss);
+    // 波次
+    if (this.waves && !this.waves.done) {
+      const spawned = this.waves.update(dt);
+      this.enemies.push(...spawned);
+    }
+    // Boss 触发：波次完成且场上无普通敌机
+    if (this.waves && this.waves.done && !this.boss && this.enemies.length === 0) {
+      this.boss = new Boss(this.regionIndex);
+      performance.mark?.('boss_enter');
     }
 
-    // 关卡波次
-    this.updateWaves(dt);
-
-    // 敌机
-    const list = this.enemies;
-    for (let i = list.length - 1; i >= 0; i--) {
-      const e = list[i];
-      if (!e.alive) {
-        list[i] = list[list.length - 1];
-        list.pop();
-        continue;
-      }
-      e.update(dt, p, this.bullets);
-
-      // 撞机
-      if (p.alive && p.isVulnerable() &&
-          circleHit(e.x, e.y, e.radius * 0.82, p.x, p.y, p.radius)) {
-        p.takeDamage(1);
-        e.damage(9999, e.x, e.y);
-      }
+    // 敌机更新 + 开火
+    for (const e of this.enemies) {
+      const fire = e.update(dt, this.difficulty);
+      if (fire && this.boss === null) this.spawnEnemyBullet(e.x, e.y, this._aimAngle(e), 180 * this.difficulty.bulletSpeedMult, 4, false);
     }
+    this.enemies = this.enemies.filter((e) => !e.dead);
 
-    // Boss
+    // Boss 更新
     if (this.boss) {
-      this.boss.update(dt, p, this.bullets, this.fx);
-      if (this.boss.alive && p.alive && p.isVulnerable() &&
-          circleHit(this.boss.x, this.boss.y, this.boss.radius * 0.8, p.x, p.y, p.radius)) {
-        p.takeDamage(1);
-      }
-      if (this.boss.dead) {
-        this.onBossDead();
-      }
+      const fire = this.boss.update(dt, this.difficulty);
+      if (this.boss.syncPhase()) { this.eBullets = []; this.audio.sfx('alarm'); }
+      if (fire) this.fireBossPattern();
+      if (this.boss.hp <= 0) this.onBossDead();
     }
 
-    // 子弹
-    this.bullets.update(dt, p, this.enemies, this.fx);
+    // 子弹更新
+    for (const b of this.pBullets) b.update(dt, p);
+    for (const b of this.eBullets) b.update(dt, p);
 
-    // 子弹命中 Boss（单独处理，Boss 不在 enemies 数组里）
-    if (this.boss && this.boss.alive && !this.boss.entering) {
-      const bl = this.bullets.list;
-      for (let i = bl.length - 1; i >= 0; i--) {
-        const b = bl[i];
-        if (!b.friendly) continue;
-        if (!circleHit(b.x, b.y, b.r, this.boss.x, this.boss.y, this.boss.radius * 0.88)) continue;
-        this.boss.damage(b.dmg, b.x, b.y);
-        this.fx.spark(b.x, b.y, b.color, 2);
-        if (b.pierce > 0) b.pierce--;
-        else {
-          bl[i] = bl[bl.length - 1];
-          bl.pop();
-        }
-      }
+    // 碰撞
+    this.collide();
+
+    // 道具吸附 (FR-CBT-05)
+    for (const d of this.drops) {
+      const dd = Math.hypot(d.x - p.x, d.y - p.y);
+      if (dd < GLOBAL.ATTRACT_RADIUS) {
+        const a = Math.atan2(p.y - d.y, p.x - d.x);
+        d.x += Math.cos(a) * 420 * dt; d.y += Math.sin(a) * 420 * dt;
+      } else { d.y += 60 * dt; }
+      if (dd < 16) this.applyDrop(d);
     }
+    this.drops = this.drops.filter((d) => d.y < VIEW.H + 20);
 
-    // 阵亡结算：小怪
-    for (const e of this.enemies) {
-      if (e.alive || e.scored) continue;
-      e.scored = true;
-      this.kills++;
-      this.score += Math.round(e.score);
-      this.fx.explode(e.x, e.y, e.radius > 20 ? 1.5 : 1, e.color);
-      sfx.explode();
-      if (chance(e.type === 'tank' ? 0.55 : 0.13)) {
-        this.dropItem(e.x, e.y, e.type === 'tank' || e.type === 'turret' ? DROP.power : null);
-      } else if (chance(0.02)) {
-        this.dropItem(e.x, e.y, DROP.life);
-      }
-    }
+    // 粒子
+    for (const pt of this.particles) pt.update(dt);
+    this.particles = this.particles.filter((pt) => !pt.dead);
 
-    // 道具
-    this.updateDrops(dt);
+    // 区域过渡无敌计时
+    if (this.transition > 0) { this.transition -= dt; p.invuln = Math.max(p.invuln, 0.05); }
 
-    // Boss 击破 → 倒数进入下一区
-    if (this.boss && this.boss.dead && this.clearTimer > 0) {
-      this.clearTimer -= dt;
-      if (this.clearTimer <= 0) {
-        this.nextLevel();
-        return;
-      }
-    }
+    // 清理出界子弹/死敌
+    this.pBullets = this.pBullets.filter((b) => !b.dead);
+    this.eBullets = this.eBullets.filter((b) => !b.dead);
 
-    // 玩家阵亡 → 结算
-    if (!p.alive && p.lives <= 0) {
-      this.gameOver();
-      return;
+    // 坠机重生后仍无敌
+    if (!p.alive && p.respawn <= 0 && p.lives > 0) p.alive = true;
+    if (!p.alive && p.lives <= 0) this.onGameOver();
+  }
+
+  _aimAngle(e) {
+    const err = this.difficulty.aimError;
+    const base = Math.atan2(this.player.y - e.y, this.player.x - e.x);
+    return base + (Math.random() - 0.5) * (err / 100);
+  }
+
+  spawnEnemyBullet(x, y, angle, speed, r = 4, fromPlayer = false) {
+    if (this.eBullets.length >= GLOBAL.BULLET_POOL) return; // 上限丢弃新子弹 (NFR-PERF-02)
+    this.eBullets.push(new Bullet(x, y, Math.cos(angle) * speed, Math.sin(angle) * speed, { r, fromPlayer }));
+  }
+
+  fireBossPattern() {
+    const b = this.boss;
+    const pat = patternForPhase(b.phase, b.patternIndex);
+    const speed = 160 * BOSS.PHASE_SPEED_MULT[b.phase] * this.difficulty.bulletSpeedMult;
+    if (pat === 'aimed') {
+      const a = Math.atan2(this.player.y - b.y, this.player.x - b.x);
+      this.spawnEnemyBullet(b.x, b.y, a, speed, 5);
+    } else if (pat === 'ring') {
+      for (let i = 0; i < 14; i++) this.spawnEnemyBullet(b.x, b.y, (i / 14) * Math.PI * 2, speed, 5);
+    } else if (pat === 'cross') {
+      // 双翼交叉针弹
+      this.spawnEnemyBullet(b.x - 40, b.y, Math.PI / 2 + 0.3, speed * 1.2, 5);
+      this.spawnEnemyBullet(b.x + 40, b.y, Math.PI / 2 - 0.3, speed * 1.2, 5);
+    } else if (pat === 'spiral') {
+      const a = (b.patternIndex * 0.5) % (Math.PI * 2);
+      for (let k = 0; k < 3; k++) this.spawnEnemyBullet(b.x, b.y, a + k * (Math.PI * 2 / 3), speed, 5);
     }
   }
 
-  updateDrops(dt) {
+  collide() {
     const p = this.player;
-    for (let i = this.drops.length - 1; i >= 0; i--) {
-      const d = this.drops[i];
-      d.y += d.vy * dt;
-      d.vy = Math.min(150, d.vy + 40 * dt);
-      d.t += dt;
-      // 靠近玩家时被吸引
-      if (p.alive) {
-        const dx = p.x - d.x;
-        const dy = p.y - d.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        if (dist < 130) {
-          const pull = 340 * (1 - dist / 130) + 120;
-          d.x += (dx / dist) * pull * dt;
-          d.y += (dy / dist) * pull * dt;
-        }
-        if (dist < 19) {
-          this.collect(d);
-          this.drops.splice(i, 1);
-          continue;
+    // 玩家子弹 vs 敌机/Boss
+    for (const b of this.pBullets) {
+      if (b.dead) continue;
+      for (const e of this.enemies) {
+        if (e.dead) continue;
+        if (Math.hypot(b.x - e.x, b.y - e.y) <= e.hitR + b.r) {
+          e.hp -= b.dmg; b.dead = true;
+          if (e.hp <= 0) this.killEnemy(e);
+          break;
         }
       }
-      if (d.y > VIEW.h + 30) this.drops.splice(i, 1);
+      if (!b.dead && this.boss && !this.boss.entering) {
+        if (Math.hypot(b.x - this.boss.x, b.y - this.boss.y) <= 40 + b.r) {
+          this.boss.hp -= b.dmg; b.dead = true;
+        }
+      }
+    }
+    // 敌弹 vs 玩家（含擦弹）
+    for (const b of this.eBullets) {
+      if (b.dead) continue;
+      const d = Math.hypot(b.x - p.x, b.y - p.y);
+      if (d <= p.hitR + b.r) {
+        if (p.takeHit()) { this.onPlayerHit(); b.dead = true; }
+      } else if (d <= GLOBAL.GRAZE_OUTER && p.alive) {
+        if (this.graze.check(b.id, d)) this.score += SCORE.GRAZE;
+      }
     }
   }
 
-  dropItem(x, y, kind) {
-    let type = kind;
-    if (!type) {
-      const r = Math.random();
-      type = r < 0.55 ? DROP.power : r < 0.8 ? DROP.bomb : DROP.shield;
-    }
-    this.drops.push({ x, y, vy: 70, type, t: 0 });
+  killEnemy(e) {
+    e.dead = true;
+    this.score += e.score;
+    this.spawnExplosion(e.x, e.y, e.radius);
+    this.audio.sfx('explosion');
+    const drop = rollDrop(e.type);
+    if (drop) this.drops.push({ x: e.x, y: e.y, kind: drop });
   }
 
-  collect(d) {
-    const p = this.player;
-    sfx.pickup();
-    switch (d.type) {
-      case DROP.power: {
-        const up = p.addPower(1);
-        if (up) {
-          sfx.powerUp();
-          this.fx.text(p.x, p.y - 34, `火力 Lv.${p.level}`, '#39e7ff', 16);
-          this.fx.burst(p.x, p.y, {
-            count: 16, speed: 160, life: 0.5, size: 3, colors: ['#39e7ff', '#ffffff'],
-          });
-        } else {
-          this.score += 50;
-          this.fx.text(p.x, p.y - 30, '+50', '#8ff9ff', 13);
-        }
-        break;
-      }
-      case DROP.bomb:
-        p.bombs = Math.min(9, p.bombs + 1);
-        this.fx.text(p.x, p.y - 34, '炸弹 +1', '#ffd166', 15);
-        break;
-      case DROP.life:
-        p.lives = Math.min(9, p.lives + 1);
-        this.fx.text(p.x, p.y - 34, '生命 +1', '#ff6b9d', 15);
-        sfx.powerUp();
-        break;
-      case DROP.shield:
-        p.shieldTime = Math.max(p.shieldTime, 5);
-        this.fx.text(p.x, p.y - 34, '护盾 5s', '#9be7ff', 15);
-        break;
-      default:
-        break;
+  spawnExplosion(x, y, r) {
+    const n = Math.min(30, Math.round(r * 1.2)) * (this.settings.motion === 'reduced' ? 0.5 : 1);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 160;
+      this.particles.push(new Particle(x, y, Math.cos(a) * sp, Math.sin(a) * sp, 0.4 + Math.random() * 0.4, '#ffcf6b', 2 + Math.random() * 2));
     }
+  }
+
+  applyDrop(d) {
+    this.audio.sfx('pickup');
+    if (d.kind === 'power') { const bonus = this.player.addEnergy(); if (bonus) this.score += bonus; this.audio.sfx('powerup'); }
+    else if (d.kind === 'bomb') this.player.bombs = Math.min(PLAYER.BOMBS_MAX, this.player.bombs + 1);
+    else if (d.kind === 'shield') this.player.giveShield();
+    this.drops = this.drops.filter((x) => x !== d);
+  }
+
+  onPlayerHit() {
+    this.flash = 0.6; this.shake = 0.25; // 白闪≤120ms 由 decay 控制；震动≤250ms
+    this.audio.sfx('explosion');
+    performance.mark?.('player_hit');
   }
 
   onBossDead() {
-    if (this._bossRewarded) return;
-    this._bossRewarded = true;
-    const b = this.boss;
-    this.score += b.score;
-    this.kills++;
-    this.fx.bigExplode(b.x, b.y);
-    sfx.bigExplode();
-    this.drops.push({ x: b.x - 26, y: b.y, vy: 60, type: DROP.power, t: 0 });
-    this.drops.push({ x: b.x + 26, y: b.y, vy: 60, type: DROP.bomb, t: 0 });
-    // 不切状态：继续跑死亡演出与道具回收，2.6s 后进入下一区
-    this.clearTimer = 2.6;
-    this.banner = {
-      title: '区 域 肃 清',
-      sub: this.levelIndex + 1 < LEVELS.length ? '准备进入下一区' : '全部区域完成',
-      life: 2.6,
-      maxLife: 2.6,
-    };
-    sfx.levelClear();
-    this.score += SCORE.levelClear;
-  }
-
-  nextLevel() {
-    this._bossRewarded = false;
-    this.state = STATE.PLAYING;
-    this.clearTimer = 0;
+    this.score += SCORE.BOSS_KILL;
+    this.spawnExplosion(this.boss.x, this.boss.y, 60);
     this.boss = null;
-    if (this.levelIndex + 1 >= LEVELS.length) {
-      this.win();
-      return;
+    this.score += SCORE.REGION_CLEAR;
+    if (this.regionIndex >= REGIONS.length - 1) {
+      this.sm.transition(STATES.WIN);
+      this.audio.sfx('win');
+      this.finishRun();
+    } else {
+      this.regionIndex += 1;
+      this.transition = 2.2; // 区域过渡无敌 (FR-LVL-05)
+      this.waves = new WaveDirector(this.regionIndex, this.settings.difficulty);
+      this.sm.transition(STATES.CLEAR);
+      setTimeout(() => { if (this.sm.is(STATES.CLEAR)) this.sm.transition(STATES.PLAYING); }, 2200);
     }
-    this.loadLevel(this.levelIndex + 1);
   }
 
-  /* ------------------------------------------------------------ *
-   * 渲染
-   * ------------------------------------------------------------ */
+  onGameOver() {
+    if (this.sm.is(STATES.GAMEOVER)) return;
+    this.sm.transition(STATES.GAMEOVER);
+    this.finishRun();
+  }
 
-  render() {
-    const ctx = this.ctx;
-    const L = this.level;
+  finishRun() {
+    const date = new Date().toISOString().slice(0, 10);
+    const duration = Math.round((performance.now() - this.runStart) / 1000);
+    const run = { score: this.score, difficulty: this.settings.difficulty, date, duration, region: this.regionIndex + 1 };
+    this.data = recordRun(this.data, run);
+    save(this.backend, this.data); // 失败静默降级 (FR-SAV-02)
+  }
 
-    // 背景渐变
-    const g = ctx.createLinearGradient(0, 0, 0, VIEW.h);
-    g.addColorStop(0, L.bg[0]);
-    g.addColorStop(1, L.bg[1]);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, VIEW.w, VIEW.h);
-
-    // 扫描线状星云（缓慢流动，增加纵深）
-    const t = performance.now() / 1000;
-    ctx.globalAlpha = 0.05;
-    for (let i = 0; i < 3; i++) {
-      const yy = ((t * (14 + i * 9) + i * 240) % (VIEW.h + 200)) - 100;
-      const rg = ctx.createRadialGradient(VIEW.w / 2, yy, 0, VIEW.w / 2, yy, 260);
-      rg.addColorStop(0, L.accent);
-      rg.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = rg;
-      ctx.fillRect(0, yy - 260, VIEW.w, 520);
-    }
-    ctx.globalAlpha = 1;
-
-    // 星空
-    this.fx.drawBackground(ctx, VIEW.w, VIEW.h, 0, L.accent);
-
-    // 屏幕震动
-    const sh = this.fx.shake;
-    ctx.save();
-    if (sh > 0.2) {
-      ctx.translate(rand(-sh, sh) * 0.5, rand(-sh, sh) * 0.5);
-    }
-
-    // 道具
-    for (const d of this.drops) drawDrop(ctx, d.x, d.y, d.type, d.t);
-
-    // 敌机
-    for (const e of this.enemies) if (e.alive) e.draw(ctx);
-
-    // Boss
-    if (this.boss && (!this.boss.dead)) this.boss.draw(ctx);
-
-    // 玩家与子弹
-    this.player.draw(ctx);
-    this.bullets.draw(ctx);
-
-    // 粒子
-    this.fx.draw(ctx);
-    this.fx.drawTexts(ctx);
-
-    ctx.restore();
-
-    // 闪白
-    if (this.fx.flash > 0.01) {
-      ctx.globalAlpha = Math.min(0.85, this.fx.flash);
-      ctx.fillStyle = this.fx.flashColor;
-      ctx.fillRect(0, 0, VIEW.w, VIEW.h);
-      ctx.globalAlpha = 1;
-    }
-
-    // HUD
-    this.hud.draw(this);
-
-    // 关卡横幅
-    if (this.banner) {
-      const b = this.banner;
-      const k = 1 - b.life / b.maxLife;
-      const a = b.life > b.maxLife - 0.4 ? (b.maxLife - b.life) / 0.4
-        : b.life < 0.6 ? b.life / 0.6 : 1;
-      ctx.globalAlpha = clamp(a, 0, 1);
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '700 30px "Segoe UI", "Microsoft YaHei", system-ui, sans-serif';
-      ctx.shadowColor = L.accent;
-      ctx.shadowBlur = 18;
-      ctx.fillText(b.title, VIEW.w / 2, VIEW.h * 0.42);
-      ctx.shadowBlur = 0;
-      ctx.font = '600 13px "Segoe UI", system-ui, sans-serif';
-      ctx.fillStyle = L.accent;
-      ctx.fillText(b.sub, VIEW.w / 2, VIEW.h * 0.42 + 26);
-      // 分隔线
-      ctx.strokeStyle = L.accent;
-      ctx.globalAlpha *= 0.6;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(VIEW.w / 2 - 90, VIEW.h * 0.42 - 30);
-      ctx.lineTo(VIEW.w / 2 + 90, VIEW.h * 0.42 - 30);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
-    // 暗角
-    const vg = ctx.createRadialGradient(
-      VIEW.w / 2, VIEW.h / 2, VIEW.h * 0.32,
-      VIEW.w / 2, VIEW.h / 2, VIEW.h * 0.78
-    );
-    vg.addColorStop(0, 'rgba(0,0,0,0)');
-    vg.addColorStop(1, 'rgba(0,0,0,0.55)');
-    ctx.fillStyle = vg;
-    ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+  // 设置变更后持久化 (FR-SYS-01/07)。
+  persistSettings() {
+    this.data.settings = this.settings;
+    save(this.backend, this.data);
+    if (this.audio) this.audio.applyGains(this.settings.volume);
   }
 }

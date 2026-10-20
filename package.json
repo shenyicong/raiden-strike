@@ -1,0 +1,12 @@
+{
+  "name": "raiden-strike",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "雷霆战机 RAIDEN STRIKE — 零依赖、零素材的 HTML5 Canvas 纵版弹幕射击游戏",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node --test tests/acceptance.test.js tests/sim.test.js"
+  },
+  "doc_version": "1.1"
+}

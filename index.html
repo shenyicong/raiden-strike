@@ -2,46 +2,44 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#03060f">
-<meta name="description" content="雷霆战机 Raiden Strike —— 纯原生 HTML5 + Canvas 的街机纵向弹幕射击游戏，零依赖零资源，开箱可玩。">
-<title>雷霆战机 · RAIDEN STRIKE</title>
-<link rel="stylesheet" href="css/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🚀</text></svg>">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta property="og:title" content="雷霆战机 RAIDEN STRIKE">
+<meta property="og:description" content="零依赖、零素材的 HTML5 Canvas 纵版弹幕射击游戏">
+<meta property="og:image" content="og-cover.png">
+<title>雷霆战机 RAIDEN STRIKE</title>
+<style>
+  :root { --accent:#5fa8ff; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:#05060c; color:#e8eefc;
+    font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; overflow:hidden; }
+  #stage { position:relative; width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; }
+  #game { background:#000; border-radius:6px; box-shadow:0 0 40px rgba(95,168,255,.25);
+    touch-action:none; overscroll-behavior:none; }
+  .overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(3,6,14,.72); backdrop-filter:blur(2px); }
+  .panel { background:#0c1224; border:1px solid #233; border-radius:12px; padding:24px 28px; width:min(86%,360px);
+    text-align:center; box-shadow:0 10px 40px rgba(0,0,0,.5); }
+  .panel h1 { font-size:20px; margin:0 0 8px; }
+  .panel h2 { margin:0 0 14px; }
+  .panel p { margin:6px 0; font-size:13px; color:#b9c4dc; }
+  .panel .hint { font-size:12px; color:#7e8aa6; }
+  .panel .best { margin-top:14px; color:var(--accent); }
+  button { display:block; width:100%; margin:8px 0; padding:10px; border-radius:8px; border:1px solid #2c3a5e;
+    background:#15203a; color:#e8eefc; font-size:14px; cursor:pointer; }
+  button.primary { background:var(--accent); color:#04101f; border-color:var(--accent); font-weight:700; }
+  button:focus, input:focus, select:focus { outline:2px solid #ffd166; outline-offset:2px; } /* NFR-A11Y-07 */
+  .settings label { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:8px 0; font-size:13px; }
+  .settings input[type=range] { width:140px; }
+  ol { text-align:left; font-size:12px; color:#cdd6ea; padding-left:18px; }
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
+  .diag { position:absolute; top:6px; left:50%; transform:translateX(-50%); font-size:11px;
+    background:rgba(0,0,0,.6); color:#9fe; padding:4px 8px; border-radius:6px; pointer-events:none; }
+</style>
 </head>
 <body>
-
-<div id="stage">
-  <canvas id="game"></canvas>
-
-  <div id="overlay" class="overlay show">
-    <div class="panel">
-      <div class="corner tl"></div>
-      <div class="corner tr"></div>
-      <div class="corner bl"></div>
-      <div class="corner br"></div>
-
-      <h1 id="ovTitle">雷 霆 战 机</h1>
-      <p id="ovSub" class="sub">RAIDEN STRIKE · 街机纵版弹幕射击</p>
-      <div id="ovStats" class="stats-wrap"></div>
-
-      <button id="ovBtn" class="btn">开始任务</button>
-      <p id="ovHint" class="hint">按 Enter / 空格 也可开始</p>
-    </div>
+  <div id="stage">
+    <canvas id="game" width="480" height="720"></canvas>
   </div>
-
-  <div id="touchHint">拖动屏幕移动 · 自动射击</div>
-  <div id="muteTag"></div>
-</div>
-
-<footer id="credit">
-  <span>雷霆战机 · 开源项目</span>
-  <span class="dot">·</span>
-  <a href="https://github.com/shenyicong/raiden-strike" target="_blank" rel="noopener">GitHub</a>
-  <span class="dot">·</span>
-  <span>MIT License</span>
-</footer>
-
-<script type="module" src="src/main.js"></script>
+  <script type="module" src="./src/main.js"></script>
 </body>
 </html>
