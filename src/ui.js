@@ -82,7 +82,9 @@ export class UI {
 
   // ---- 视图 --------------------------------------------------------------
   hide() {
-    if (this.view === 'hidden') return;
+    // 注意：sync() 在调用本方法前已把 this.view 置为 'hidden'，
+    // 因此这里不能再以 view 做早退守卫，否则 display:none 永远不会生效
+    // （v2.0/v2.1 的隐藏 bug 根因：点开始后标题遮罩一直盖住游戏画面）。
     this.view = 'hidden';
     this.overlay.style.display = 'none';
     this.overlay.innerHTML = '';
