@@ -74,6 +74,8 @@ export class AudioEngine {
       case 'pickup':   this._blip(660, 0.08, 'triangle', 'sfx', 0.25); break;
       case 'powerup':  this._blip(520, 0.12, 'square', 'sfx', 0.3); this._blip(780, 0.12, 'square', 'sfx', 0.25); break;
       case 'alarm':    this._blip(300, 0.18, 'sawtooth', 'sfx', 0.25); break;
+      // v2.6 超载爆发：低频轰鸣 + 高频扫尾
+      case 'overdrive':this._blip(150, 0.38, 'sawtooth', 'sfx', 0.32); this._blip(920, 0.22, 'square', 'sfx', 0.2); break;
       case 'win':      this._blip(523, 0.2, 'triangle', 'music', 0.3); this._blip(784, 0.3, 'triangle', 'music', 0.3); break;
     }
   }

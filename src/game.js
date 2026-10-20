@@ -1,7 +1,7 @@
 // game.js — 主循环与编排 (FR-CORE / FR-CBT / FR-ENM / FR-LVL)。rAF + dt 钳制。
 import {
   VIEW, GLOBAL, PLAYER, ENEMIES, ENEMY_HIT_FACTOR, REGIONS, BOSS, DIFFICULTY,
-  SCORE, DROPS, BOMB, RAMP, STORAGE_SCHEMA_VERSION,
+  SCORE, DROPS, BOMB, RAMP, RALLY, OVERDRIVE, STORAGE_SCHEMA_VERSION,
 } from './config.js';
 import { STATES, StateMachine } from './statemachine.js';
 import { Player, Enemy, Bullet, Particle, Boss } from './entities.js';
@@ -38,6 +38,9 @@ export class Game {
     this.t = 0;
     this.toast = null; // 短提示（解锁/收集）文本 + 倒计时
     this.runTime = 0;  // v2.4 本局存活时间（难度递进用）
+    this.overdrive = 0; // v2.6 超载能量（0 ~ OVERDRIVE.MAX）
+    this.regionKills = 0; // v2.6 本区已清理敌机数（达标出 Boss）
+    this.rally = [];    // v2.5 待重整的漏网敌机队列
     this.shipId = shipById(this.settings.ship).id; // 归一：未知/缺失回退到雷霆号
     if (!isUnlocked(this.shipId, this.data.unlocked)) this.shipId = 'raiden';
     performance.mark?.('boot_start');
@@ -52,12 +55,16 @@ export class Game {
     this.player.lives = Math.max(1, this.difficulty.initLives + this.player.ship.livesBonus);
     this.player.level = 1; this.player.energy = 0;
     this.enemies = []; this.pBullets = []; this.eBullets = []; this.particles = []; this.drops = [];
+    this.rally = [];   // v2.5 待重整的漏网敌机队列
     this.boss = null;
     this.regionIndex = 0;
     this.waves = new WaveDirector(0, this.settings.difficulty);
     this.score = 0; this.graze = new GrazeTracker();
     this.toast = null;
     this.runTime = 0; // v2.4 难度递进计时归零
+    this.rally = [];  // v2.5 重整队列清空
+    this.overdrive = 0; // v2.6 超载能量清零
+    this.regionKills = 0; // v2.6 本区清理计数清零
     // 结束态不能直连 playing（状态机合法转换：gameover/win -> ready -> playing）。
     // 少了这一步，"再来一局"点了会静默失败：状态仍是 gameover，结算面板一直盖着。
     if (this.sm.is(STATES.GAMEOVER) || this.sm.is(STATES.WIN)) this.sm.transition(STATES.READY);
@@ -148,10 +155,13 @@ export class Game {
     const shots = p.update(dt, inp, inp.precision);
     if (shots) { for (const s of shots) this.pBullets.push(new Bullet(s.x, s.y, s.vx, s.vy, { dmg: s.dmg, fromPlayer: true, homing: s.homing, r: 4 })); this.audio.sfx('shoot'); }
 
-    // 波次
+    // 波次（v2.6：达到本区清理阈值即停止刷怪）
     if (this.waves && !this.waves.done) {
-      const spawned = this.waves.update(dt, this.rampScale()); // v2.4 按时间成长
-      this.enemies.push(...spawned);
+      if (this.regionKills >= this.regionQuota) this.waves.done = true;
+      else {
+        const spawned = this.waves.update(dt, this.rampScale()); // v2.4 按时间成长
+        this.enemies.push(...spawned);
+      }
     }
     // Boss 触发：波次完成且场上无普通敌机
     if (this.waves && this.waves.done && !this.boss && this.enemies.length === 0) {
@@ -164,7 +174,20 @@ export class Game {
       const fire = e.update(dt, this.difficulty);
       if (fire && this.boss === null) this.spawnEnemyBullet(e.x, e.y, this._aimAngle(e), 150 * this.difficulty.bulletSpeedMult * this.rampScale().speedMult, 4, false); // v2.3 弹速下调 + v2.4 随时间回升
     }
+    // v2.5 漏网敌机：飞出下缘且未击破 -> 离场并进入重整队列（不再无限堆积在屏幕下方）
+    for (const e of this.enemies) {
+      if (!e.dead && e.y > VIEW.H + RALLY.EXIT_Y_MARGIN) {
+        e.dead = true; // 不计分、不掉落
+        if (e.reentries < RALLY.MAX_TIMES && this.rally.length < RALLY.MAX_QUEUE) {
+          this.rally.push({
+            type: e.type, hp: e.hp, maxHp: e.maxHp, fireMult: e.fireMult,
+            reentries: e.reentries + 1, t: RALLY.DELAY,
+          });
+        }
+      }
+    }
     this.enemies = this.enemies.filter((e) => !e.dead);
+    this._updateRally(dt);
 
     // Boss 更新
     if (this.boss) {
@@ -181,13 +204,20 @@ export class Game {
     // 碰撞
     this.collide();
 
-    // 道具吸附 (FR-CBT-05)
+    // v2.6 超载爆发：蓝条集满即自动引爆（放在碰撞之后统一结算，避免遍历中改动数组）
+    if (OVERDRIVE.AUTO && this.overdrive >= OVERDRIVE.MAX) this._triggerOverdrive();
+
+    // 道具吸附 (FR-CBT-05)。v2.6：未被吸附时按「初速 + 加速度 → 顶速」自动下落，不再停在原地。
     for (const d of this.drops) {
       const dd = Math.hypot(d.x - p.x, d.y - p.y);
-      if (dd < GLOBAL.ATTRACT_RADIUS) {
+      if (dd < GLOBAL.ATTRACT_RADIUS && p.alive) {
         const a = Math.atan2(p.y - d.y, p.x - d.x);
         d.x += Math.cos(a) * 420 * dt; d.y += Math.sin(a) * 420 * dt;
-      } else { d.y += 60 * dt; }
+        d.vy = 0; // 被吸附时改为直奔玩家，取消惯性
+      } else {
+        d.vy = Math.min(DROPS.FALL_SPEED, (d.vy ?? 0) + DROPS.FALL_ACCEL * dt);
+        d.y += d.vy * dt;
+      }
       if (dd < 16) this.applyDrop(d);
     }
     this.drops = this.drops.filter((d) => d.y < VIEW.H + 20);
@@ -210,6 +240,22 @@ export class Game {
     // 坠机重生后仍无敌
     if (!p.alive && p.respawn <= 0 && p.lives > 0) p.alive = true;
     if (!p.alive && p.lives <= 0) this.onGameOver();
+  }
+
+  // v2.5：等待中的敌机到期后带着原有血量从上方重新入场
+  _updateRally(dt) {
+    if (!this.rally || !this.rally.length) return;
+    for (const r of this.rally) r.t -= dt;
+    const ready = this.rally.filter((r) => r.t <= 0);
+    if (!ready.length) return;
+    this.rally = this.rally.filter((r) => r.t > 0);
+    for (const r of ready) {
+      const x = 30 + Math.random() * (VIEW.W - 60);
+      this.enemies.push(new Enemy(r.type, x, RALLY.ENTRY_Y, {
+        hp: r.hp, maxHp: r.maxHp, fireMult: r.fireMult, reentries: r.reentries,
+      }));
+    }
+    this.say(`敌机重整：${ready.length} 架带伤重返战场`, 1.6);
   }
 
   _aimAngle(e) {
@@ -251,6 +297,7 @@ export class Game {
         if (e.dead) continue;
         if (Math.hypot(b.x - e.x, b.y - e.y) <= e.hitR + b.r) {
           e.hp -= b.dmg; b.dead = true;
+          this.addOverdrive(b.dmg * OVERDRIVE.PER_DMG); // v2.6 命中积攒超载能量
           if (e.hp <= 0) this.killEnemy(e);
           break;
         }
@@ -258,6 +305,7 @@ export class Game {
       if (!b.dead && this.boss && !this.boss.entering) {
         if (Math.hypot(b.x - this.boss.x, b.y - this.boss.y) <= 40 + b.r) {
           this.boss.hp -= b.dmg; b.dead = true;
+          this.addOverdrive(b.dmg * OVERDRIVE.PER_DMG); // v2.6 打 Boss 同样积攒
         }
       }
     }
@@ -268,18 +316,62 @@ export class Game {
       if (d <= p.hitR + b.r) {
         if (p.takeHit()) { this.onPlayerHit(); b.dead = true; }
       } else if (d <= GLOBAL.GRAZE_OUTER && p.alive) {
-        if (this.graze.check(b.id, d)) this.score += SCORE.GRAZE;
+        if (this.graze.check(b.id, d)) { this.score += SCORE.GRAZE; this.addOverdrive(OVERDRIVE.PER_GRAZE); } // v2.6 擦弹也积攒
       }
     }
+  }
+
+  // v2.6 本区击杀阈值：清理够数就停止刷怪，清屏后拉 Boss
+  get regionQuota() { return REGIONS[this.regionIndex]?.quota ?? 20; }
+
+  // v2.6 积攒超载能量。来源：造成伤害 / 击破 / 擦弹。上限 OVERDRIVE.MAX。
+  addOverdrive(amount) {
+    if (!(amount > 0)) return;
+    this.overdrive = Math.min(OVERDRIVE.MAX, this.overdrive + amount);
+  }
+
+  // v2.6 蓝条集满自动引爆：清空当前屏幕所有敌机（Boss 改为重创）+ 清敌弹 + 短暂无敌。
+  // 清屏击破只计分与特效，不掉落道具，避免一次爆发塞满屏幕。
+  _triggerOverdrive() {
+    this.overdrive = 0; // 先清零，防止同帧重复触发
+    const cleared = this.enemies.filter((e) => !e.dead);
+    for (const e of cleared) {
+      e.dead = true;
+      this.score += e.score;
+      this.regionKills += 1; // 清屏击破同样计入本区阈值
+      this.spawnExplosion(e.x, e.y, e.radius);
+    }
+    this.enemies = this.enemies.filter((e) => !e.dead);
+    if (cleared.length) this.audio.sfx('explosion');
+
+    if (this.boss && !this.boss.entering) {
+      this.boss.hp -= OVERDRIVE.BOSS_DAMAGE;
+      this.spawnExplosion(this.boss.x, this.boss.y, 40);
+      if (this.boss.hp <= 0) this.onBossDead();
+    }
+    if (OVERDRIVE.CLEAR_BULLETS && this.eBullets.length) {
+      for (const b of this.eBullets) this.spawnExplosion(b.x, b.y, 3);
+      this.eBullets = [];
+    }
+    if (this.player) this.player.invuln = Math.max(this.player.invuln, OVERDRIVE.INVULN);
+    this.score += OVERDRIVE.SCORE_BONUS;
+    this.flash = Math.max(this.flash, 0.5);
+    this.shake = Math.max(this.shake, 0.35);
+    this.audio.sfx('overdrive');
+    this.say(`超载爆发！清除 ${cleared.length} 架敌机`, 2.0);
+    performance.mark?.('overdrive');
   }
 
   killEnemy(e) {
     e.dead = true;
     this.score += e.score;
+    this.regionKills += 1; // v2.6 本区清理计数（达标即出 Boss）
+    this.addOverdrive(OVERDRIVE.PER_KILL); // v2.6 击破积攒超载能量
     this.spawnExplosion(e.x, e.y, e.radius);
     this.audio.sfx('explosion');
     const drop = rollDrop(e.type);
-    if (drop) this.drops.push({ x: e.x, y: e.y, kind: drop });
+    // v2.6：带下落初速出场，视觉上"抛出即下落"
+    if (drop) this.drops.push({ x: e.x, y: e.y, kind: drop, vy: DROPS.FALL_V0 });
   }
 
   spawnExplosion(x, y, r) {
@@ -326,6 +418,7 @@ export class Game {
       this._grantUnlocks({ regionReached: this.regionIndex + 1 }); // 到达新区 -> 发放该区对应战机
       this.transition = 2.2; // 区域过渡无敌 (FR-LVL-05)
       this.waves = new WaveDirector(this.regionIndex, this.settings.difficulty);
+      this.regionKills = 0; // v2.6 新区重新计阈值
       this.sm.transition(STATES.CLEAR);
       setTimeout(() => { if (this.sm.is(STATES.CLEAR)) this.sm.transition(STATES.PLAYING); }, 2200);
     }

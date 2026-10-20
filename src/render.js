@@ -1,5 +1,5 @@
 // render.js — Canvas 2D 程序化绘制 (FR-PRS-01/02/05/06)。
-import { VIEW, PLAYER, GLOBAL, REGIONS, BOSS } from './config.js';
+import { VIEW, PLAYER, GLOBAL, REGIONS, BOSS, OVERDRIVE } from './config.js';
 import { TOUCH_BUTTONS } from './input.js';
 import { hitboxVisible, motionFlags } from './settings.js';
 
@@ -292,11 +292,47 @@ export class Renderer {
     ctx.fillText(`LIFE ${'♥'.repeat(Math.max(0, g.player.lives))}`, 8, 30);
     ctx.fillText(`BOMB ${g.player.bombs}`, 120, 30);
     ctx.fillText(`PWR Lv.${g.player.level}`, 220, 30);
+    // v2.6 本区清理进度：达标后转提示 BOSS 即将出现
+    const quota = g.regionQuota || 0;
+    const kills = Math.max(0, g.regionKills || 0);
+    ctx.fillStyle = kills >= quota ? '#ffd166' : '#9fb0d0';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText(kills >= quota ? 'BOSS 待命' : `CLEAR ${kills}/${quota}`, 330, 30);
     ctx.fillStyle = (g.player.ship && g.player.ship.color) || '#7fe7ff';
     ctx.fillText(`SHIP ${g.player.ship ? g.player.ship.name : '雷霆号'}`, 8, 50);
     ctx.fillStyle = '#fff';
     if (g.muted) { ctx.fillText('🔇', VIEW.W - 24, 30); }
+    this._drawOverdriveBar(g);
   }
+
+  // v2.6 超载能量条：横向蓝条，集满时高亮闪烁提示即将引爆
+  _drawOverdriveBar(g) {
+    const max = OVERDRIVE.MAX || 100;
+    const v = Math.max(0, Math.min(1, (g.overdrive || 0) / max));
+    const x = 8, y = 60, w = VIEW.W - 16, h = 8;
+    const ctx = this.ctx;
+    ctx.fillStyle = 'rgba(10,18,38,0.75)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(127,180,255,0.55)'; ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    const full = v >= 1;
+    const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+    grad.addColorStop(0, '#2f7bff');
+    grad.addColorStop(1, full ? '#b6e3ff' : '#59d7ff');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, w * v, h);
+    if (full && !this._reducedMotion()) {
+      ctx.globalAlpha = 0.35 + 0.35 * Math.sin((performance.now() / 90));
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = full ? '#b6e3ff' : '#8fb6e6';
+    ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(full ? 'OVERDRIVE READY' : `OVERDRIVE ${Math.round(v * 100)}%`, x, y - 2);
+  }
+
+  _reducedMotion() { return !!(this.settings && this.settings.motion === 'reduced'); }
 
   // 触屏端虚拟按钮：炸弹（右下）、暂停（左下）、精确慢速（左侧）
   _drawTouchButtons(g) {

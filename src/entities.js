@@ -58,9 +58,10 @@ export class Player {
     this.x = clamp(this.x + dx * speed * dt, this.hitR, VIEW.W - this.hitR);
     this.y = clamp(this.y + dy * speed * dt, this.hitR, VIEW.H - this.hitR);
 
-    // 自动连发 (FR-CBT-02)
+    // 自动连发 (FR-CBT-02)。v2.6：默认全程自动开火，无需长按射击键；
+    // 保留 input.fire（拖动/空格）作为兼容通道，AUTO_FIRE 关闭时回退为按键开火。
     this.fireTimer -= dt;
-    if (input.fire && this.fireTimer <= 0) {
+    if ((PLAYER.AUTO_FIRE || input.fire) && this.fireTimer <= 0) {
       this.fireTimer = 1 / (WEAPONS[this.level - 1].fireRate * this.ship.fireMult);
       return spawnPlayerShots(this.level, this.x, this.y, performance.now() / 1000, this.ship.dmgMult);
     }
@@ -88,7 +89,10 @@ export class Enemy {
     const fireMult = opts.fireMult ?? 1;
     this.type = type;
     this.x = x; this.y = y;
-    this.hp = Math.round(spec.hp * hpMult); this.maxHp = this.hp;
+    this.hpMult = hpMult; this.fireMult = fireMult; // v2.5 重整时沿用同一成长倍率
+    this.reentries = opts.reentries || 0;           // 已重整次数
+    this.hp = Math.round(opts.hp ?? spec.hp * hpMult);
+    this.maxHp = Math.round(opts.maxHp ?? spec.hp * hpMult); // 血条按满血显示剩余比例
     this.radius = spec.radius;
     this.speed = spec.speed;
     this.score = spec.score;

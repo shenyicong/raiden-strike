@@ -28,6 +28,7 @@ export const PLAYER = {
   LIVES_MAX: 9,
   BOMBS_MAX: 9,
   BLINK_HZ: 2,       // 无敌闪烁 2Hz (FR-PRS-04)
+  AUTO_FIRE: true,   // v2.6：全程自动开火，无需长按空格/J（与 PRD「自动射击」一致）
 };
 
 // 可驾驶战机 (v2.1 新增)。
@@ -77,8 +78,36 @@ export const DROPS = {
   SHIELD_DURATION: 5, // 护盾无敌 5s
   LIFE_CHANCE: 0.06,  // 额外判定：非重型敌机 6% 概率单独掉生命（与权重池叠加）
   SHIELD_CHANCE: 0.10, // 额外判定：10% 概率单独掉护盾
+  // v2.6：道具爆出后自动下落（带初速与加速度，到顶速后匀速），不再停在原地
+  FALL_V0: 45,        // 爆出瞬间的下落初速 px/s（避免"悬停"观感）
+  FALL_ACCEL: 210,    // 下落加速度 px/s²（约 0.62s 达到顶速）
+  FALL_SPEED: 175,    // 下落顶速 px/s（约 4s 穿屏，玩家有时间去接）
 };
 export const LIFE_DROP_EVENT_ONLY = false; // v2.4：生命道具进入随机池与独立爆率
+
+// v2.5 漏网敌机重整：飞出屏幕下缘仍未被击破的敌机，带着剩余血量离场，
+// 数秒后从上方重新入场参战（解决"敌机堆在飞机下方打不到"的问题）。
+export const RALLY = {
+  DELAY: 3.0,      // 离场后重新入场等待（秒）
+  MAX_TIMES: 2,    // 每架最多重整 2 次，避免无限循环
+  MAX_QUEUE: 6,    // 同时等待重整的队列上限
+  EXIT_Y_MARGIN: 30, // 越过 VIEW.H + 该值视为离场
+  ENTRY_Y: -30,    // 重新入场起始高度
+};
+
+// 超载爆发 (v2.6)：命中敌机即积攒能量，蓝条集满后自动引爆，清空当前屏幕所有敌机。
+// 积攒来源 = 造成伤害 + 击破 + 擦弹；Boss 不会被清屏秒杀，改为承受一次重创。
+export const OVERDRIVE = {
+  MAX: 100,          // 蓝条满值
+  PER_DMG: 0.35,     // 每点伤害积攒的能量
+  PER_KILL: 4,       // 每次击破额外积攒
+  PER_GRAZE: 0.6,    // 每次擦弹积攒
+  AUTO: true,        // 集满自动引爆（关闭则改为手动，暂未暴露开关）
+  BOSS_DAMAGE: 700,  // 引爆时对 Boss 造成的伤害
+  SCORE_BONUS: 300,  // 引爆奖励分
+  INVULN: 1.0,       // 引爆后无敌时长（秒）
+  CLEAR_BULLETS: true, // 是否同时清空屏幕上的敌方子弹
+};
 
 // v2.4 循序渐进难度曲线：敌机血量 / 攻击频率 / 弹速 / 波次数量随存活时间分档递增。
 // 每 TIME_STEP 秒升一档，最多 MAX_STEPS 档（到达上限后不再变难）。
@@ -103,20 +132,24 @@ export const SCORE = {
 export const REGIONS = [
   {
     id: 1, name: '近地轨道', bossName: '哨戒舰 · 铁翼',
-    bossHp: 2470, waves: 9, waveTotal: 27.5,
+    bossHp: 2470, waves: 9, waveTotal: 27.5, quota: 18, // v2.6 清理 18 架后出 Boss
     palette: { top: '#0b1026', bottom: '#1b2a4a', accent: '#5fa8ff' },
   },
   {
     id: 2, name: '陨石带', bossName: '重型轰炸舰 · 熔核',
-    bossHp: 3990, waves: 8, waveTotal: 29.0,
+    bossHp: 3990, waves: 8, waveTotal: 29.0, quota: 24,
     palette: { top: '#1a1208', bottom: '#3a2a12', accent: '#ff9a3c' },
   },
   {
     id: 3, name: '母舰外围', bossName: '旗舰 · 天穹之影',
-    bossHp: 6080, waves: 8, waveTotal: 30.0,
+    bossHp: 6080, waves: 8, waveTotal: 30.0, quota: 30,
     palette: { top: '#0a0418', bottom: '#2a0f3a', accent: '#c77dff' },
   },
 ];
+
+// v2.6 关卡阈值：清理足够数量敌机后停止刷怪，清屏即出 Boss。
+// MAX_WAVE_MULT 为兜底上限（刷到该倍数波次仍没达到阈值也强制结束，避免"不打枪就永远不出 Boss"）。
+export const QUOTA = { MAX_WAVE_MULT: 2 };
 
 // Boss 三阶段参数 (6.5)。phase thresholds by hp ratio。
 export const BOSS = {

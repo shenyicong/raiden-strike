@@ -1,6 +1,6 @@
 // input.js — 输入管理 (FR-INP-01..07 / FR-CORE-07)。
-// 键盘 WASD+方向；Space/J 射击；K/X 炸弹；P/Esc 暂停；M 静音；Shift 精确。
-// 指针拖动自动开火；多指不抢锚点；pointercancel/lostpointercapture 清锚点。
+// 键盘 WASD+方向移动；K/X 炸弹；P/Esc 暂停；M 静音；Shift 精确。
+// v2.6：射击改为全程自动（PLAYER.AUTO_FIRE），空格/J 仅作兼容保留，不再需要长按。
 // v2.2：拖动改为"相对偏移跟手"（手指按在机身哪，飞机就跟到哪，不再有 60px 跳变）；
 //       移动端新增屏幕炸弹按钮（手机无键盘）；阻断浏览器手势，避免竖向拖动被滚动/下拉刷新抢走。
 import { VIEW } from './config.js';

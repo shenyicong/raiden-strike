@@ -18,6 +18,8 @@ function memBackend() { const m = {}; return { getItem: (k) => (k in m ? m[k] : 
 const { Game } = await import('../src/game.js');
 const { STATES } = await import('../src/statemachine.js');
 const { VIEW } = await import('../src/config.js');
+const { DROPS, OVERDRIVE, REGIONS } = await import('../src/config.js');
+const VIEW_H = VIEW.H;
 const inputModule = await import('../src/input.js');
 const entitiesModule = await import('../src/entities.js');
 const { rollDrop } = await import('../src/drops.js');
@@ -226,4 +228,129 @@ test('v2.4 道具随机爆率：护盾/生命可独立掉落，生命拾取加�
   assert.equal(rollDrop('scout', seq([0.5, 0.001])), 'life', '独立爆率掉生命');
   assert.equal(rollDrop('scout', seq([0.5, 0.08])), 'shield', '独立爆率掉护盾');
   assert.equal(rollDrop('scout', seq([0.5, 0.5])), null, '独立爆率未命中');
+});
+
+test('v2.5 漏网敌机重整：飞出下缘后带着剩余血量，数秒后从上方重返战场', () => {
+  const g = newGame();
+  g.startRun();
+  g.waves.done = true; // 只观察重整行为，屏蔽波次干扰
+  const e = new entitiesModule.Enemy('fighter', 200, VIEW_H + 40); // 已越过下缘
+  e.hp = 12; e.maxHp = 30; // 被打残
+  g.enemies = [e];
+  g.step(1 / 60, performance.now());
+  assert.equal(g.enemies.length, 0, '离场的敌机应移出战场，不再堆在飞机下方');
+  assert.equal(g.rally.length, 1, '应进入重整队列');
+  assert.equal(g.rally[0].hp, 12, '重整数据应保留剩余血量');
+
+  // 等到它重新入场就立刻检查（用 reentries 精确定位，避免误选波次刷出的同型敌机）
+  let back = null;
+  for (let i = 0; i < 300 && !back; i++) {
+    g.step(1 / 60, performance.now() + i * 16);
+    back = g.enemies.find((x) => x.reentries === 1) || null;
+  }
+  assert.ok(back, '到时应重新出现在战场上');
+  assert.ok(back.y < 200, '应从上方入场，实际 y=' + back.y.toFixed(0));
+  assert.equal(back.hp, 12, '血量应保持被打残时的数值');
+  assert.equal(back.maxHp, 30, '血条上限沿用满血，剩余比例可见');
+  assert.equal(back.reentries, 1, '应记录重整次数');
+});
+
+test('v2.5 重整次数封顶，避免敌机无限循环', () => {
+  const g = newGame();
+  g.startRun();
+  for (let round = 0; round < 5; round++) {
+    const e = new entitiesModule.Enemy('scout', 200, VIEW_H + 40);
+    e.reentries = round; // 模拟已经重整过 round 次
+    g.enemies = [e];
+    g.step(1 / 60, performance.now());
+  }
+  assert.ok(g.rally.length <= 3, '超过 MAX_TIMES 的敌机不再入队，实际排队 ' + g.rally.length);
+});
+
+test('v2.6 自动开火：无需长按射击键，战机也持续发射子弹', () => {
+  const g = newGame(fakeInput(false)); // 明确未按下任何射击键/未拖动
+  g.startRun();
+  let sawBullet = false;
+  for (let i = 0; i < 40; i++) {
+    g.step(1 / 60, performance.now() + i * 16);
+    if (g.pBullets.length > 0) { sawBullet = true; break; }
+  }
+  assert.ok(sawBullet, '未按射击键也应自动开火');
+});
+
+test('v2.6 道具自动下落：爆出后持续下降，并加速到顶速', () => {
+  const g = newGame();
+  g.startRun();
+  g.player.x = 24; g.player.y = VIEW_H - 30; // 远离道具，避免被吸附干扰
+  g.drops = [{ x: 400, y: 120, kind: 'power', vy: 0 }];
+  const y0 = g.drops[0].y;
+  for (let i = 0; i < 30; i++) g.step(1 / 60, performance.now() + i * 16);
+  assert.ok(g.drops.length === 1, '半秒内道具不应离场');
+  assert.ok(g.drops[0].y > y0 + 20, `道具应自动下落，实际位移 ${(g.drops[0].y - y0).toFixed(1)}px`);
+  assert.ok(g.drops[0].vy > 0, '应带下落速度');
+  // 2 秒后达到顶速并匀速
+  for (let i = 0; i < 120; i++) g.step(1 / 60, performance.now() + i * 16);
+  if (g.drops.length) assert.ok(g.drops[0].vy <= DROPS.FALL_SPEED + 1e-6, '下落速度应被顶速封顶');
+});
+
+test('v2.6 超载积攒：命中敌机与击破都会为蓝条充能', () => {
+  const g = newGame();
+  g.startRun();
+  g.overdrive = 0;
+  const e = new entitiesModule.Enemy('scout', g.player.x, g.player.y - 160);
+  g.enemies = [e];
+  for (let i = 0; i < 120 && g.overdrive <= 0; i++) g.step(1 / 60, performance.now() + i * 16);
+  assert.ok(g.overdrive > 0, '命中敌机后蓝条应开始充能');
+});
+
+test('v2.6 超载爆发：蓝条集满自动引爆，清空屏幕所有敌机', () => {
+  const g = newGame();
+  g.startRun();
+  for (let i = 0; i < 3; i++) g.enemies.push(new entitiesModule.Enemy('scout', 80 + i * 120, 220));
+  g.overdrive = OVERDRIVE.MAX; // 直接置满
+  const before = g.score;
+  g.step(1 / 60, performance.now());
+  assert.equal(g.enemies.length, 0, '集满应清空屏幕上所有敌机');
+  assert.equal(g.overdrive, 0, '引爆后蓝条应清零');
+  assert.ok(g.score > before, '清屏应计分');
+  assert.ok(g.player.invuln > 0, '引爆后应有短暂无敌');
+});
+
+test('v2.6 超载爆发：Boss 不被秒杀，只承受一次重创', () => {
+  const g = newGame();
+  g.startRun();
+  g.boss = new entitiesModule.Boss(0);
+  g.boss.entering = false;
+  const hp0 = g.boss.hp;
+  g.overdrive = OVERDRIVE.MAX;
+  g.step(1 / 60, performance.now());
+  assert.ok(g.boss && g.boss.hp < hp0, 'Boss 应受伤而非被清屏秒杀');
+  assert.ok(hp0 - g.boss.hp >= OVERDRIVE.BOSS_DAMAGE, `伤害应至少 ${OVERDRIVE.BOSS_DAMAGE}`);
+});
+
+test('v2.6 关卡阈值：每关有清理阈值，达标后停止刷怪、清屏即出 Boss', () => {
+  const g = newGame();
+  g.startRun();
+  const quota = g.regionQuota;
+  assert.ok(quota > 0 && quota <= 40, '每关应有合理阈值，实际 ' + quota);
+  assert.equal(quota, REGIONS[0].quota, '阈值取自区域配置');
+  g.regionKills = quota; // 模拟已清理达标
+  g.step(1 / 60, performance.now());
+  assert.ok(g.waves.done, '达标后应停止刷怪');
+  g.enemies = [];
+  g.step(1 / 60, performance.now() + 16);
+  assert.ok(g.boss, '清屏后应拉出 Boss');
+});
+
+test('v2.6 关卡阈值：进入新区后计数重新归零', () => {
+  const g = newGame();
+  g.startRun();
+  g.regionKills = g.regionQuota;
+  g.regionIndex = 0;
+  g.boss = new entitiesModule.Boss(0);
+  g.boss.hp = 0; // 触发 onBossDead -> 进入下一区
+  g.onBossDead();
+  assert.equal(g.regionIndex, 1, '应推进到第二区');
+  assert.equal(g.regionKills, 0, '新区阈值计数应归零');
+  assert.equal(g.regionQuota, REGIONS[1].quota, '应改用第二区的阈值');
 });
