@@ -1,7 +1,7 @@
 // game.js — 主循环与编排 (FR-CORE / FR-CBT / FR-ENM / FR-LVL)。rAF + dt 钳制。
 import {
   VIEW, GLOBAL, PLAYER, ENEMIES, ENEMY_HIT_FACTOR, REGIONS, BOSS, DIFFICULTY,
-  SCORE, DROPS, BOMB, RAMP, RALLY, OVERDRIVE, STORAGE_SCHEMA_VERSION,
+  SCORE, DROPS, BOMB, RAMP, RALLY, OVERDRIVE, ENEMY_DAMAGE, STORAGE_SCHEMA_VERSION,
 } from './config.js';
 import { STATES, StateMachine } from './statemachine.js';
 import { Player, Enemy, Bullet, Particle, Boss } from './entities.js';
@@ -71,12 +71,12 @@ export class Game {
     this.sm.transition(STATES.PLAYING);
     this.runStart = performance.now();
     performance.mark?.('run_start');
-    this.audio.unlock().then(() => this.audio.startMusic());
+    this.audio.unlock().then(() => this.audio.startMusic(this.regionIndex)); // v2.6.1 按区域选曲
   }
 
   pauseToggle() {
-    if (this.sm.is(STATES.PLAYING)) this.sm.pause();
-    else if (this.sm.is(STATES.PAUSED)) this.sm.resume();
+    if (this.sm.is(STATES.PLAYING)) { this.sm.pause(); this.audio.stopMusic(); } // v2.6.1 暂停即停乐
+    else if (this.sm.is(STATES.PAUSED)) { this.sm.resume(); this.audio.startMusic(this.regionIndex); }
   }
   interrupt() { if (this.sm.is(STATES.PLAYING)) this.sm.pause(); }
 
@@ -166,6 +166,7 @@ export class Game {
     // Boss 触发：波次完成且场上无普通敌机
     if (this.waves && this.waves.done && !this.boss && this.enemies.length === 0) {
       this.boss = new Boss(this.regionIndex);
+      this.audio.setTrack?.(this.regionIndex, true); // v2.6.1 Boss 战切紧张版
       performance.mark?.('boss_enter');
     }
 
@@ -264,27 +265,32 @@ export class Game {
     return base + (Math.random() - 0.5) * (err / 100);
   }
 
-  spawnEnemyBullet(x, y, angle, speed, r = 4, fromPlayer = false) {
+  // v2.6.1：敌弹现在带伤害值（普通 150 / Boss 150 = 原等效 100 的 +50%）
+  spawnEnemyBullet(x, y, angle, speed, r = 4, fromPlayer = false, dmg = ENEMY_DAMAGE.BULLET) {
     if (this.eBullets.length >= GLOBAL.BULLET_POOL) return; // 上限丢弃新子弹 (NFR-PERF-02)
-    this.eBullets.push(new Bullet(x, y, Math.cos(angle) * speed, Math.sin(angle) * speed, { r, fromPlayer }));
+    this.eBullets.push(new Bullet(x, y, Math.cos(angle) * speed, Math.sin(angle) * speed, { r, fromPlayer, dmg }));
   }
 
   fireBossPattern() {
     const b = this.boss;
     const pat = patternForPhase(b.phase, b.patternIndex);
-    const speed = 132 * BOSS.PHASE_SPEED_MULT[b.phase] * this.difficulty.bulletSpeedMult; // v2.3 弹速下调
+    const speed = 132 * BOSS.PHASE_SPEED_MULT[b.phase] * this.difficulty.bulletSpeedMult; // v2.3 弹速下调 + v2.6.1 回调
+    const bd = ENEMY_DAMAGE.BOSS;
     if (pat === 'aimed') {
       const a = Math.atan2(this.player.y - b.y, this.player.x - b.x);
-      this.spawnEnemyBullet(b.x, b.y, a, speed, 5);
+      this.spawnEnemyBullet(b.x, b.y, a, speed, 5, false, bd);
     } else if (pat === 'ring') {
-      for (let i = 0; i < 14; i++) this.spawnEnemyBullet(b.x, b.y, (i / 14) * Math.PI * 2, speed, 5);
+      const n = BOSS.RING_COUNT || 14; // v2.6.1 环形弹加密
+      for (let i = 0; i < n; i++) this.spawnEnemyBullet(b.x, b.y, (i / n) * Math.PI * 2, speed, 5, false, bd);
     } else if (pat === 'cross') {
-      // 双翼交叉针弹
-      this.spawnEnemyBullet(b.x - 40, b.y, Math.PI / 2 + 0.3, speed * 1.2, 5);
-      this.spawnEnemyBullet(b.x + 40, b.y, Math.PI / 2 - 0.3, speed * 1.2, 5);
+      // 双翼交叉针弹（v2.6.1 中央再加一发）
+      this.spawnEnemyBullet(b.x - 40, b.y, Math.PI / 2 + 0.3, speed * 1.2, 5, false, bd);
+      this.spawnEnemyBullet(b.x + 40, b.y, Math.PI / 2 - 0.3, speed * 1.2, 5, false, bd);
+      this.spawnEnemyBullet(b.x, b.y, Math.PI / 2, speed * 1.2, 5, false, bd);
     } else if (pat === 'spiral') {
       const a = (b.patternIndex * 0.5) % (Math.PI * 2);
-      for (let k = 0; k < 3; k++) this.spawnEnemyBullet(b.x, b.y, a + k * (Math.PI * 2 / 3), speed, 5);
+      const k = BOSS.SPIRAL_COUNT || 3; // v2.6.1 螺旋弹加密
+      for (let i = 0; i < k; i++) this.spawnEnemyBullet(b.x, b.y, a + i * (Math.PI * 2 / k), speed, 5, false, bd);
     }
   }
 
@@ -314,7 +320,7 @@ export class Game {
       if (b.dead) continue;
       const d = Math.hypot(b.x - p.x, b.y - p.y);
       if (d <= p.hitR + b.r) {
-        if (p.takeHit()) { this.onPlayerHit(); b.dead = true; }
+        if (p.takeHit(b.dmg)) { this.onPlayerHit(); b.dead = true; }
       } else if (d <= GLOBAL.GRAZE_OUTER && p.alive) {
         if (this.graze.check(b.id, d)) { this.score += SCORE.GRAZE; this.addOverdrive(OVERDRIVE.PER_GRAZE); } // v2.6 擦弹也积攒
       }
@@ -419,6 +425,7 @@ export class Game {
       this.transition = 2.2; // 区域过渡无敌 (FR-LVL-05)
       this.waves = new WaveDirector(this.regionIndex, this.settings.difficulty);
       this.regionKills = 0; // v2.6 新区重新计阈值
+      this.audio.setTrack?.(this.regionIndex); // v2.6.1 换区换曲
       this.sm.transition(STATES.CLEAR);
       setTimeout(() => { if (this.sm.is(STATES.CLEAR)) this.sm.transition(STATES.PLAYING); }, 2200);
     }
@@ -437,6 +444,7 @@ export class Game {
     this._grantUnlocks({ score: this.score }); // 分数达标解锁 (凤凰)
     this.data = recordRun(this.data, run);
     save(this.backend, this.data); // 失败静默降级 (FR-SAV-02)
+    this.audio.stopMusic(); // v2.6.1 结算时停掉 BGM
   }
 
   // 设置变更后持久化 (FR-SYS-01/07)。

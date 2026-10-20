@@ -18,7 +18,7 @@ function memBackend() { const m = {}; return { getItem: (k) => (k in m ? m[k] : 
 const { Game } = await import('../src/game.js');
 const { STATES } = await import('../src/statemachine.js');
 const { VIEW } = await import('../src/config.js');
-const { DROPS, OVERDRIVE, REGIONS } = await import('../src/config.js');
+const { DROPS, OVERDRIVE, REGIONS, PLAYER, ENEMY_DAMAGE } = await import('../src/config.js');
 const VIEW_H = VIEW.H;
 const inputModule = await import('../src/input.js');
 const entitiesModule = await import('../src/entities.js');
@@ -353,4 +353,87 @@ test('v2.6 关卡阈值：进入新区后计数重新归零', () => {
   assert.equal(g.regionIndex, 1, '应推进到第二区');
   assert.equal(g.regionKills, 0, '新区阈值计数应归零');
   assert.equal(g.regionQuota, REGIONS[1].quota, '应改用第二区的阈值');
+});
+
+test('v2.6.1 敌机射速 +50%：三种会开火的敌机频率均提升到 1.5 倍', () => {
+  const mod = entitiesModule;
+  // 基准值来自 v2.3：fighter 1.00 / tank 0.70 / turret 1.15
+  assert.ok(Math.abs(new mod.Enemy('fighter', 0, 0).fireRate - 1.50) < 1e-6, 'fighter 应 1.50');
+  assert.ok(Math.abs(new mod.Enemy('tank', 0, 0).fireRate - 1.05) < 1e-6, 'tank 应 1.05');
+  assert.ok(Math.abs(new mod.Enemy('turret', 0, 0).fireRate - 1.73) < 0.01, 'turret 应约 1.73');
+  assert.equal(new mod.Enemy('scout', 0, 0).fireRate, 0, '侦察机仍不开火');
+});
+
+test('v2.6.1 敌机伤害 +50%：一发敌弹扣光一条命并溢出，两发掉三命', () => {
+  const g = newGame();
+  g.startRun();
+  const p = g.player;
+  p.lives = 9; p.invuln = 0; p.shield = 0; p.alive = true;
+  p.lifeHp = PLAYER.LIFE_HP;
+  p.takeHit(ENEMY_DAMAGE.BULLET); // 150 伤害 = 1.5 条命
+  assert.equal(p.lives, 8, '第一发掉 1 命');
+  assert.ok(Math.abs(p.lifeHp - PLAYER.LIFE_HP * 0.5) < 1e-6, '应只剩半条命的耐久');
+  p.invuln = 0;
+  p.takeHit(ENEMY_DAMAGE.BULLET); // 再一发：0.5 - 1.5 -> 连带下一条命
+  assert.equal(p.lives, 6, '两发共掉 3 命（相对旧版 +50%）');
+  // 旧行为回归：不传伤害参数仍是"一击一命"
+  const p2 = g.player; p2.invuln = 0;
+  const before = p2.lives;
+  p2.takeHit();
+  assert.equal(p2.lives, before - 1, '默认伤害应等价于旧版一击一命');
+});
+
+test('v2.6.1 蓝条积攒变慢：同样的输出换来的能量明显减少', () => {
+  const g = newGame();
+  g.startRun();
+  g.overdrive = 0;
+  g.player.level = 5; // 满火力：8/s * 9 伤害
+  const e = new entitiesModule.Enemy('tank', g.player.x, g.player.y - 120);
+  g.enemies = [e];
+  for (let i = 0; i < 60; i++) g.step(1 / 60, performance.now() + i * 16); // 1 秒
+  // 系数层面：三项来源全部下调（v2.6 基准 0.35 / 4 / 0.6）
+  assert.ok(OVERDRIVE.PER_DMG < 0.35, '每点伤害的充能应下调');
+  assert.ok(OVERDRIVE.PER_KILL < 4, '击破充能应下调');
+  assert.ok(OVERDRIVE.PER_GRAZE < 0.6, '擦弹充能应下调');
+  // 体感层面：满火力 1 秒的充能量应明显低于 v2.6 的约 38
+  assert.ok(g.overdrive > 0, '仍应能充能');
+  assert.ok(g.overdrive < 30, `充能速度应下降，1 秒内实际 ${g.overdrive.toFixed(1)}`);
+});
+
+test('v2.6.1 Boss 强化：血量 +20%、阶段间隔缩短（射速 +50%）、弹量增加', async () => {
+  const bossCfg = (await import('../src/config.js')).BOSS;
+  const regions = (await import('../src/config.js')).REGIONS;
+  assert.equal(regions[0].bossHp, 2970, '一区 Boss 血量 +20%');
+  assert.equal(regions[1].bossHp, 4790, '二区 Boss 血量 +20%');
+  assert.equal(regions[2].bossHp, 7300, '三区 Boss 血量 +20%');
+  assert.ok(Math.abs(bossCfg.PHASE_INTERVAL[0] - 1.2) < 1e-6, '阶段间隔 1.8 -> 1.2（射速 +50%）');
+  assert.ok(bossCfg.RING_COUNT > 14 && bossCfg.SPIRAL_COUNT > 3, '环形/螺旋弹量应增加');
+  assert.ok(bossCfg.PHASE_SPEED_MULT[2] > 1.36, '三阶段弹速应提高');
+});
+
+test('v2.6.1 背景音乐：三区各一套主题 + Boss 紧张版，可切换曲目', async () => {
+  const calls = [];
+  const audio = {
+    unlock: () => Promise.resolve(true), sfx() {}, applyGains() {}, setMuted() {}, init() {},
+    startMusic(r) { calls.push(['start', r]); }, stopMusic() { calls.push(['stop']); },
+    setTrack(r, boss) { calls.push(['track', r, !!boss]); },
+  };
+  const { Game } = await import('../src/game.js');
+  const g = new Game({ renderer: fakeRenderer, audio, input: fakeInput(), backend: memBackend() });
+  g.startRun();
+  await new Promise((r) => setTimeout(r, 0)); // startMusic 在 unlock() 的 then 里调用
+  assert.ok(calls.some((c) => c[0] === 'start'), '开局应启动 BGM');
+  // Boss 出场 -> 切紧张版
+  calls.length = 0;
+  g.regionKills = g.regionQuota;
+  g.step(1 / 60, performance.now());
+  g.enemies = [];
+  g.step(1 / 60, performance.now() + 16);
+  assert.ok(g.boss, '应拉出 Boss');
+  assert.ok(calls.some((c) => c[0] === 'track' && c[2] === true), 'Boss 出场应切紧张版曲目');
+  // 击杀 Boss -> 换区换曲
+  calls.length = 0;
+  g.boss.hp = 0;
+  g.onBossDead();
+  assert.ok(calls.some((c) => c[0] === 'track' && c[1] === 1 && c[2] === false), '进入新区应换曲');
 });

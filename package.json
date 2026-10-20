@@ -1,6 +1,6 @@
 {
   "name": "raiden-strike",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "private": true,
   "type": "module",
   "description": "雷霆战机 RAIDEN STRIKE — 零依赖、零素材的 HTML5 Canvas 纵版弹幕射击游戏",

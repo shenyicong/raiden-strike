@@ -46,6 +46,10 @@ globalThis.window = {
     createGain() { return { gain: { value: 0, setTargetAtTime() {}, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} }; }
     createOscillator() { return { type: '', frequency: { value: 0 }, connect() {}, start() {}, stop() {} }; }
     resume() { return Promise.resolve(); }
+    // v2.6.1 BGM 用到的合成能力：噪声缓冲（打击乐）+ 滤波器
+    createBuffer(ch, len) { return { getChannelData: () => new Float32Array(len) }; }
+    createBufferSource() { return { buffer: null, connect() {}, start() {}, stop() {} }; }
+    createBiquadFilter() { return { type: '', frequency: { value: 0 }, connect() {} }; }
   },
 };
 globalThis.document = {

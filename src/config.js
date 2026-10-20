@@ -2,7 +2,7 @@
 // NFR-MAINT-01: 全部平衡性参数集中于单一配置文件。
 
 // 游戏版本号：标题界面 / README 徽章 / package.json 均以此为准，随版本更新同步修改。
-export const VERSION = '2.6.0';
+export const VERSION = '2.6.1';
 
 export const VIEW = {
   W: 480,            // 逻辑分辨率宽 (6.1)
@@ -32,6 +32,15 @@ export const PLAYER = {
   BOMBS_MAX: 9,
   BLINK_HZ: 2,       // 无敌闪烁 2Hz (FR-PRS-04)
   AUTO_FIRE: true,   // v2.6：全程自动开火，无需长按空格/J（与 PRD「自动射击」一致）
+  // v2.6.1 引入"每条命的耐久"，让"敌机伤害"成为可量化的数值：
+  // 一发敌弹造成 ENEMY_BULLET_DMG 点伤害，扣光一条命的 LIFE_HP 才掉一条命，溢出伤害继续扣下一条。
+  LIFE_HP: 100,      // 每条命的耐久
+};
+
+// v2.6.1 敌机强度：射速与伤害在现有基础上各 +50%（数值集中在此，改一处即可回调）
+export const ENEMY_DAMAGE = {
+  BULLET: 150,   // 普通敌机子弹伤害（原等效 100 → +50%）
+  BOSS: 150,     // Boss 子弹伤害（原等效 100 → +50%）
 };
 
 // 可驾驶战机 (v2.1 新增)。
@@ -61,12 +70,13 @@ export const MAX_LEVEL = WEAPONS.length;
 
 // 敌机规格 (6.4)。命中判定取半径的 0.82 倍（宽容处理）。
 // v2.3 难度下调：血量约 -12%、速度约 -12%、开火频率约 -25%（分值保持不变）
+// v2.6.1：开火频率在 v2.3 基础上 +50%（fighter 1.00→1.50 / tank 0.70→1.05 / turret 1.15→1.73）
 export const ENEMIES = {
   scout:    { hp: 14, radius: 13, speed: 115, fireRate: 0,    score: 100, behavior: 'straight' },
-  fighter:  { hp: 30, radius: 16, speed: 84,  fireRate: 1.00, score: 180, behavior: 'sway' },
-  tank:     { hp: 95, radius: 24, speed: 52,  fireRate: 0.70, score: 420, behavior: 'slow' },
+  fighter:  { hp: 30, radius: 16, speed: 84,  fireRate: 1.50, score: 180, behavior: 'sway' },
+  tank:     { hp: 95, radius: 24, speed: 52,  fireRate: 1.05, score: 420, behavior: 'slow' },
   kamikaze: { hp: 18, radius: 14, speed: 182, fireRate: 0,    score: 220, behavior: 'dive' },
-  turret:   { hp: 60, radius: 18, speed: 42,  fireRate: 1.15, score: 260, behavior: 'static' },
+  turret:   { hp: 60, radius: 18, speed: 42,  fireRate: 1.73, score: 260, behavior: 'static' },
 };
 export const ENEMY_HIT_FACTOR = 0.82; // 敌机命中半径系数
 
@@ -102,9 +112,9 @@ export const RALLY = {
 // 积攒来源 = 造成伤害 + 击破 + 擦弹；Boss 不会被清屏秒杀，改为承受一次重创。
 export const OVERDRIVE = {
   MAX: 100,          // 蓝条满值
-  PER_DMG: 0.35,     // 每点伤害积攒的能量
-  PER_KILL: 4,       // 每次击破额外积攒
-  PER_GRAZE: 0.6,    // 每次擦弹积攒
+  PER_DMG: 0.20,     // 每点伤害积攒的能量（v2.6.1 下调约 43%，爆发不再频繁）
+  PER_KILL: 2.2,     // 每次击破额外积攒（原 4）
+  PER_GRAZE: 0.30,   // 每次擦弹积攒（原 0.6）
   AUTO: true,        // 集满自动引爆（关闭则改为手动，暂未暴露开关）
   BOSS_DAMAGE: 700,  // 引爆时对 Boss 造成的伤害
   SCORE_BONUS: 300,  // 引爆奖励分
@@ -135,17 +145,17 @@ export const SCORE = {
 export const REGIONS = [
   {
     id: 1, name: '近地轨道', bossName: '哨戒舰 · 铁翼',
-    bossHp: 2470, waves: 9, waveTotal: 27.5, quota: 18, // v2.6 清理 18 架后出 Boss
+    bossHp: 2970, waves: 9, waveTotal: 27.5, quota: 18, // v2.6 清理 18 架后出 Boss
     palette: { top: '#0b1026', bottom: '#1b2a4a', accent: '#5fa8ff' },
   },
   {
     id: 2, name: '陨石带', bossName: '重型轰炸舰 · 熔核',
-    bossHp: 3990, waves: 8, waveTotal: 29.0, quota: 24,
+    bossHp: 4790, waves: 8, waveTotal: 29.0, quota: 24,
     palette: { top: '#1a1208', bottom: '#3a2a12', accent: '#ff9a3c' },
   },
   {
     id: 3, name: '母舰外围', bossName: '旗舰 · 天穹之影',
-    bossHp: 6080, waves: 8, waveTotal: 30.0, quota: 30,
+    bossHp: 7300, waves: 8, waveTotal: 30.0, quota: 30,
     palette: { top: '#0a0418', bottom: '#2a0f3a', accent: '#c77dff' },
   },
 ];
@@ -155,15 +165,18 @@ export const REGIONS = [
 export const QUOTA = { MAX_WAVE_MULT: 2 };
 
 // Boss 三阶段参数 (6.5)。phase thresholds by hp ratio。
+// v2.6.1 Boss 强化：血量 +20%、弹速更快、阶段间隔缩短（射速 +50%）、弹量更多、横向机动更强
 export const BOSS = {
   PHASE_THRESHOLDS: [0.66, 0.33], // 血量降至 66% / 33% 切阶段
-  PHASE_SPEED_MULT: [1.0, 1.18, 1.36],
-  PHASE_INTERVAL: [1.8, 1.5, 1.2], // 发射间隔 (秒)（v2.3 放宽，弹幕更疏）
-  PHASE_SWAY_MULT: [1.0, 1.5, 1.5],
+  PHASE_SPEED_MULT: [1.15, 1.35, 1.55], // 弹速倍率（原 1.0/1.18/1.36）
+  PHASE_INTERVAL: [1.2, 1.0, 0.8],      // 发射间隔 (秒)（原 1.8/1.5/1.2 → 射速 +50%）
+  PHASE_SWAY_MULT: [1.2, 1.8, 1.8],     // 横向机动（原 1.0/1.5/1.5）
   SWITCH_CLEAR_TIME: 0.8, // 切换时清空敌弹并停火 (秒)
   ENTER_TIME: 2.2,        // 入场演出 (秒)
   MIN_PHASE_TIME: 6.0,    // 每阶段时长约束 ≥6 秒 (F-05)
   PATTERNS: ['aimed', 'ring', 'cross', 'spiral'], // 四模式轮换
+  RING_COUNT: 18,         // 环形弹数量（原 14）
+  SPIRAL_COUNT: 5,        // 螺旋弹每波条数（原 3）
 };
 
 // 炸弹 (FR-CBT-04)

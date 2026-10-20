@@ -25,9 +25,12 @@ export class Player {
     this.fireTimer = 0;
     this.alive = true;
     this.respawn = 0;      // 坠机重生等待
+    this.lifeHp = PLAYER.LIFE_HP; // v2.6.1 当前这条命的剩余耐久
   }
   get hitR() { return this.ship.hitR; }
   get invulnerable() { return this.invuln > 0 || this.shield > 0; }
+  // 当前这条命的耐久比例 0~1（HUD 装甲条用）
+  get lifeRatio() { return Math.max(0, Math.min(1, this.lifeHp / PLAYER.LIFE_HP)); }
 
   addEnergy() {
     const r = applyPowerItem({ energy: this.energy, level: this.level });
@@ -70,12 +73,18 @@ export class Player {
 
   // 受击：无敌/护盾时忽略；否则掉命+掉级+1.8s 无敌。返回是否真正受击。
   // 凤凰「烈焰护持」：掉命但火力不降级。
-  takeHit() {
+  // 受击：无敌/护盾时忽略；否则按伤害扣耐久，扣光一条命才掉命（v2.6.1）。
+  // dmg 默认 = 一整条命的耐久，等价于旧行为"一击掉一命"，老调用点无需改动。
+  // 伤害溢出会继续扣下一条命，所以 150 点伤害 = 两发掉三命（相对 +50%）。
+  takeHit(dmg = PLAYER.LIFE_HP) {
     if (!this.alive || this.invulnerable) return false;
-    this.lives -= 1;
+    let lost = 0;
+    this.lifeHp -= dmg;
+    while (this.lifeHp <= 0) { this.lifeHp += PLAYER.LIFE_HP; lost += 1; }
+    this.lives -= lost;
     if (this.ship.id !== 'phoenix') this.level = downgradeOnHit(this.level);
     this.invuln = PLAYER.HIT_INVULN;
-    if (this.lives <= 0) { this.alive = false; this.respawn = PLAYER.RESPAWN_WAIT; }
+    if (this.lives <= 0) { this.alive = false; this.respawn = PLAYER.RESPAWN_WAIT; this.lifeHp = PLAYER.LIFE_HP; }
     return true;
   }
   giveShield() { this.shield = Math.max(this.shield, 5); } // 刷新不叠加

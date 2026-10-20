@@ -290,6 +290,13 @@ export class Renderer {
     ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
     ctx.fillText(`SCORE ${g.score.toLocaleString()}`, 8, VIEW.H - 10);
     ctx.fillText(`LIFE ${'♥'.repeat(Math.max(0, g.player.lives))}`, 8, 30);
+    // v2.6.1 当前这条命的耐久条：敌弹伤害 150 点时，一发扣掉整条并溢出一半到下一条
+    const ar = Math.max(0, Math.min(1, g.player.lifeRatio ?? 1));
+    ctx.fillStyle = 'rgba(10,18,38,0.75)'; ctx.fillRect(8, 36, 104, 4);
+    ctx.fillStyle = ar > 0.5 ? '#51cf66' : (ar > 0.25 ? '#ffd166' : '#ff6b6b');
+    ctx.fillRect(8, 36, 104 * ar, 4);
+    ctx.strokeStyle = 'rgba(127,180,255,0.45)'; ctx.lineWidth = 1; ctx.strokeRect(7.5, 35.5, 105, 5);
+    ctx.fillStyle = '#fff';
     ctx.fillText(`BOMB ${g.player.bombs}`, 120, 30);
     ctx.fillText(`PWR Lv.${g.player.level}`, 220, 30);
     // v2.6 本区清理进度：达标后转提示 BOSS 即将出现

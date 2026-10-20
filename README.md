@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🚀 雷霆战机 · RAIDEN STRIKE **V2.6**
+# 🚀 雷霆战机 · RAIDEN STRIKE **V2.6.1**
 
 **纯原生 HTML5 + Canvas 的街机纵版弹幕射击游戏 · 零依赖 · 零图片资源 · 零构建**
 
@@ -8,7 +8,7 @@
 [![JS](https://img.shields.io/badge/JavaScript-ES%20Modules-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](#)
 [![Deps](https://img.shields.io/badge/Dependencies-0-00ff9d?style=flat-square)](#)
 [![License](https://img.shields.io/badge/License-MIT-39e7ff?style=flat-square)](#)
-[![Version](https://img.shields.io/badge/Version-2.6.0-5fa8ff?style=flat-square)](#)
+[![Version](https://img.shields.io/badge/Version-2.6.1-5fa8ff?style=flat-square)](#)
 
 ### ▶ 在线试玩 https://shenyicong.github.io/raiden-strike/
 
@@ -116,6 +116,21 @@ python -m http.server 8080      # 需要静态服务器（ES Module 限制）
 没打死、飘到我方战机下方的敌机不再无限堆积：越过屏幕下缘即离场，3 秒后**带着被你打剩的血量**从上方重返战场
 （血条沿用原满血值，能直观看出"这架已经被打残了"）。每架最多重整 2 次，队列上限 6 架，参数见 `config.js` 的 `RALLY`。
 
+### 背景音乐（v2.6.1）
+用 WebAudio 实时合成的 BGM（**零音频文件**）：8 分音符步进音序器，含**贝斯 + 琶音 + 主旋律 + 底鼓/踩镲**四条轨。
+三个区域各一套主题（近地轨道 132BPM 明亮推进 / 陨石带 140BPM 低沉压迫 / 母舰外围 148BPM 急促紧张），
+**Boss 出场自动切到紧张版**（152 / 158 / 164 BPM）；暂停即停乐，结算自动收尾。
+按 `M` 静音，音量受音乐总线控制。曲库在 `audio.js` 的 `MUSIC_TRACKS`。
+
+### 难度再平衡（v2.6.1）
+- **敌机射速 +50%**：战斗机 1.00→1.50、重甲 0.70→1.05、炮塔 1.15→1.73（数值见 `ENEMIES`）
+- **敌机伤害 +50%**：引入"每条命的耐久"（`PLAYER.LIFE_HP = 100`），一发敌弹造成 150 点伤害 ——
+  扣光当前这条命后溢出继续扣下一条，所以**两发掉三命**。HUD 生命下方新增装甲条显示当前命的剩余耐久。
+  旧接口 `takeHit()` 不传参仍是"一击一命"，行为不变。
+- **蓝条积攒变慢**：伤害 0.35→0.20、击破 4→2.2、擦弹 0.6→0.30，爆发不再频繁（约慢 43%）
+- **Boss 强化**：血量 +20%（2970/4790/7300）、阶段间隔 1.8/1.5/1.2→1.2/1.0/0.8（射速 +50%）、
+  弹速倍率 1.15/1.35/1.55、环形弹 14→18、螺旋弹 3→5、交叉弹补一发中央弹、横向机动 1.2/1.8/1.8
+
 ### 自动射击与超载爆发（v2.6）
 - **全程自动开火**：桌面端不再需要长按 `空格`/`J`，进入关卡即持续射击，只需专心走位（按键仍保留，不影响手感）。
 - **道具自动下落**：爆出的 `P`/`B`/护盾/♥ 带初速与加速度下落（45 → 顶速 175 px/s），不再悬停在原地；靠近 130px 仍会被吸附过来。
@@ -152,7 +167,7 @@ raiden-strike/
 ├── index.html            # 入口页面（需静态服务器；或用下面单文件版）
 ├── raiden-strike.html    # ★ V2.0 单文件自包含版：双击即玩，修复 file:// 打不开
 ├── dist.bundle.js        # 单文件版内联脚本（供无头冒烟测试）
-├── package.json          # version 2.6.0（与 src/config.js 的 VERSION 同步）
+├── package.json          # version 2.6.1（与 src/config.js 的 VERSION 同步）
 ├── LICENSE
 ├── src/                  # 17 个 ES Module（开发 / 测试用）
 │   ├── config.js         # ★ 所有平衡性参数（改这里调难度 / 手感）
