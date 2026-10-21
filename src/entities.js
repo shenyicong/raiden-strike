@@ -1,6 +1,6 @@
 // entities.js — 游戏实体（玩家/敌机/子弹/粒子/Boss）。无 DOM 依赖，浏览器与可测。
 import {
-  VIEW, PLAYER, GLOBAL, ENEMIES, ENEMY_HIT_FACTOR, BOMB, BOSS, REGIONS,
+  VIEW, PLAYER, GLOBAL, ENEMIES, ENEMY_HIT_FACTOR, BOMB, BOSS, REGIONS, FEEL, PALETTE,
 } from './config.js';
 import { WEAPONS } from './config.js';
 import { spawnPlayerShots, levelFromEnergy, downgradeOnHit, applyPowerItem } from './weapons.js';
@@ -43,7 +43,10 @@ export class Player {
   update(dt, input, precisionOn) {
     if (!this.alive) {
       this.respawn -= dt;
-      if (this.respawn <= 0) this.alive = true;
+      // V2.8.0 (FR-1.2)：生命耗尽时不得复活。此处若无 lives>0 守卫，玩家会在 respawn
+      // 到期后被无条件复活成"幽灵机"（lives=0 却仍在场），Game 的 gameover 判定
+      // （!alive && lives<=0）永远不成立，对局无法结束。
+      if (this.respawn <= 0 && this.lives > 0) this.alive = true;
       return;
     }
     if (this.invuln > 0) this.invuln -= dt;
@@ -58,6 +61,7 @@ export class Player {
     if (input.down) dy += 1;
     const len = Math.hypot(dx, dy) || 1;
     if (dx || dy) { dx /= len; dy /= len; } // 斜向归一 (FR-INP-02)
+    this.tilt = dx; // V2.8.0：横向输入方向（-1~1），供预渲染 Sprite 选择倾斜姿态 (FR-4.1)
     this.x = clamp(this.x + dx * speed * dt, this.hitR, VIEW.W - this.hitR);
     this.y = clamp(this.y + dy * speed * dt, this.hitR, VIEW.H - this.hitR);
 
@@ -111,14 +115,21 @@ export class Enemy {
     this.t = 0;
     this.swayDir = opts.swayDir ?? 1;
     this.dead = false;
+    // V2.8.0 打击感：受击闪烁剩余秒数 (FR-3.1)
+    this.flash = 0;
+    // V2.8.0：定点炮台的驻留高度（进入战场后停驻射击）
+    this.holdY = opts.holdY ?? (110 + Math.random() * 90);
   }
   get hitR() { return this.radius * ENEMY_HIT_FACTOR; }
+  // 命中闪：由 Game 在子弹命中时触发
+  hitFlash() { this.flash = (FEEL.HIT_FLASH_MS || 90) / 1000; }
 
   // v2.7：自爆机改为"追踪俯冲"——朝玩家当前位置偏转，但保持向下的主导动量，
   // 永不反向上升（玩家在上方时仍继续下坠，避免飞出战场）。
   // player 由 Game 传入（可选；未传时回退到 targetX / 画面下缘）。
   update(dt, difficulty, player) {
     this.t += dt;
+    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt); // V2.8.0 命中闪衰减 (FR-3.1)
     const intMult = difficulty?.intervalMult ?? 1;
     switch (this.behavior) {
       case 'straight': this.y += this.speed * dt; break;
@@ -146,8 +157,11 @@ export class Enemy {
         break;
       }
       case 'static':
-        // 定点停留（小幅度上下浮动），不前进
-        this.y += Math.sin(this.t * 1.5) * 8 * dt;
+        // 定点炮台：先下行进入战场，到达驻留高度后再小幅浮动。
+        // V2.8.0 修复：此前 turret 停在生成高度（屏幕外 y≈-30）永不入场，玩家打不到，
+        // 既卡住本区击杀配额，也让 Boss 永远不满足"清屏"条件 —— 是空屏死锁的直接来源之一 (FR-1.3)。
+        if (this.y < this.holdY) this.y += Math.max(24, this.speed) * dt;
+        else this.y += Math.sin(this.t * 1.5) * 8 * dt;
         break;
     }
     if (this.fireRate > 0) {
@@ -209,6 +223,43 @@ export class Particle {
     this.x += this.vx * dt; this.y += this.vy * dt;
     this.life -= dt;
     if (this.life <= 0) this.dead = true;
+  }
+}
+
+// V2.8.0 击破冲击波环 (FR-3.2)：核心闪光向外扩散的圆环，配合碎片粒子构成多层爆炸。
+export class Shockwave {
+  constructor(x, y, r0 = 4, r1 = 52, life = 0.34, color = PALETTE.DANGER.fast) {
+    this.id = nextId();
+    this.x = x; this.y = y;
+    this.r0 = r0; this.r1 = r1;
+    this.r = r0;
+    this.life = life; this.t = 0;
+    this.color = color;
+    this.dead = false;
+  }
+  update(dt) {
+    this.t += dt;
+    const k = Math.min(1, this.t / this.life);
+    this.r = this.r0 + (this.r1 - this.r0) * k;
+    if (this.t >= this.life) this.dead = true;
+  }
+}
+
+// V2.8.0 分数飘字 (FR-3.2)：击破处向上飘出得分，带连击倍率提示。
+export class FloatText {
+  constructor(x, y, text, color = '#ffd166', life = null) {
+    this.id = nextId();
+    this.x = x; this.y = y;
+    this.text = String(text);
+    this.color = color;
+    this.life = life ?? (FEEL.FLOAT_LIFE || 0.8);
+    this.t = 0;
+    this.dead = false;
+  }
+  update(dt) {
+    this.t += dt;
+    this.y -= 26 * dt;
+    if (this.t >= this.life) this.dead = true;
   }
 }
 
