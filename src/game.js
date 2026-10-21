@@ -2,15 +2,16 @@
 import {
   VIEW, GLOBAL, PLAYER, ENEMIES, ENEMY_HIT_FACTOR, REGIONS, BOSS, DIFFICULTY,
   SCORE, DROPS, BOMB, RAMP, RALLY, OVERDRIVE, ENEMY_DAMAGE, STORAGE_SCHEMA_VERSION,
+  MODES, DEFAULT_MODE, ENDGAME, FEEL,
 } from './config.js';
 import { STATES, StateMachine } from './statemachine.js';
-import { Player, Enemy, Bullet, Particle, Boss } from './entities.js';
-import { GrazeTracker } from './scoring.js';
+import { Player, Enemy, Bullet, Particle, Boss, Shockwave, FloatText } from './entities.js';
+import { GrazeTracker, comboMultiplier, gradeRun } from './scoring.js';
 import { rollDrop } from './drops.js';
 import { getPhase, patternForPhase, phaseInterval } from './boss.js';
 import { WaveDirector } from './levels.js';
 import { busGains, motionFlags, hitboxVisible } from './settings.js';
-import { load, save, recordRun, emptyData } from './storage.js';
+import { load, save, recordRun, emptyData, normalizeMode } from './storage.js';
 import { shipById, gradeUnlocks, isUnlocked } from './ships.js';
 import { clamp } from './util.js';
 
@@ -45,12 +46,45 @@ export class Game {
     this.rally = [];    // v2.5 待重整的漏网敌机队列
     this.shipId = shipById(this.settings.ship).id; // 归一：未知/缺失回退到雷霆号
     if (!isUnlocked(this.shipId, this.data.unlocked)) this.shipId = 'raiden';
+    // ── V2.8.0 ──
+    this.mode = normalizeMode(this.settings.mode);   // 战役 / 无尽 (FR-2.3)
+    this.combo = 0; this.comboTimer = 0; this.maxCombo = 0; // 连击 (FR-3.3)
+    this.hitstop = 0;                                // 命中停顿剩余秒数 (FR-3.4)
+    this.idleTime = 0;                               // 无目标空屏计时 (FR-1.3)
+    this.shockwaves = [];                            // 击破冲击波环 (FR-3.2)
+    this.floats = [];                                // 分数飘字 (FR-3.2)
+    this.bossCycle = 0;                              // 无尽模式已出精英 Boss 轮次
+    this.stats = this._emptyStats();                 // 结算统计 (FR-1.4)
+    this.summary = null;                             // 最近一局结算数据
     performance.mark?.('boot_start');
   }
 
   get difficulty() { return DIFFICULTY[this.settings.difficulty] || DIFFICULTY.standard; }
 
+  // 当前模式配置（FR-2.4）：难度上限、掉落、计分倍率、Boss 频率全部取自 MODES
+  get modeCfg() { return MODES[this.mode] || MODES[DEFAULT_MODE]; }
+
+  _emptyStats() {
+    // unlocked：本局解锁的战机 id，用于结算页展示「本局解锁」(FR-1.4)
+    return { kills: 0, shotsFired: 0, shotsHit: 0, hitsTaken: 0, graze: 0, bossKills: 0, unlocked: [] };
+  }
+
+  // 连击倍率：1 + 0.02×(combo-1)，封顶 ×2.0 (FR-3.3)
+  get comboMult() { return comboMultiplier(this.combo); }
+
+  // 是否处于减弱动效档（打击感据此降级，FR-3.6）
+  get reducedMotion() { return this.settings.motion === 'reduced'; }
+
+  // 综合计分倍率 = 连击倍率 × 模式倍率 (FR-2.4 / FR-3.3)
+  addScore(base) {
+    const v = Math.round(base * this.comboMult * (this.modeCfg.scoreMult || 1));
+    this.score += v;
+    return v;
+  }
+
   startRun() {
+    // V2.8.0：模式以标题页选择为准（FR-2.3），未知值由 normalizeMode 兜底为战役
+    this.mode = normalizeMode(this.settings.mode || this.mode);
     // 战机选择：存档未解锁则回退到雷霆号 (v2.1)
     this.shipId = isUnlocked(this.settings.ship, this.data.unlocked) ? this.settings.ship : 'raiden';
     this.player = new Player(this.shipId);
@@ -60,7 +94,8 @@ export class Game {
     this.rally = [];   // v2.5 待重整的漏网敌机队列
     this.boss = null;
     this.regionIndex = 0;
-    this.waves = new WaveDirector(0, this.settings.difficulty);
+    // 无尽模式：波次不设上限（持续续波），战役模式沿用 waves×2 兜底
+    this.waves = new WaveDirector(0, this.settings.difficulty, this.modeCfg.endless ? Infinity : null);
     this.score = 0; this.graze = new GrazeTracker();
     this.toast = null;
     this.runTime = 0; // v2.4 难度递进计时归零
@@ -69,9 +104,16 @@ export class Game {
     this.overdriveUsed = false;   // v2.6.2：本局引爆标记重置
     this._overdriveNotified = false; // v2.6.2：满能提示重置
     this.regionKills = 0; // v2.6 本区清理计数清零
-    // 结束态不能直连 playing（状态机合法转换：gameover/win -> ready -> playing）。
-    // 少了这一步，"再来一局"点了会静默失败：状态仍是 gameover，结算面板一直盖着。
-    if (this.sm.is(STATES.GAMEOVER) || this.sm.is(STATES.WIN)) this.sm.transition(STATES.READY);
+    // ── V2.8.0 每局重置 ──
+    this.combo = 0; this.comboTimer = 0; this.maxCombo = 0;
+    this.hitstop = 0; this.idleTime = 0;
+    this.shockwaves = []; this.floats = [];
+    this.bossCycle = 0; this.stats = this._emptyStats(); this.summary = null;
+    // 结束态不能直连 playing（状态机合法转换：gameover/win/victory -> ready -> playing）。
+    // 少了这一步，"再来一局"点了会静默失败：状态仍是结束态，结算面板一直盖着。
+    if (this.sm.is(STATES.GAMEOVER) || this.sm.is(STATES.WIN) || this.sm.is(STATES.VICTORY)) {
+      this.sm.transition(STATES.READY);
+    }
     this.sm.transition(STATES.PLAYING);
     this.runStart = performance.now();
     performance.mark?.('run_start');
@@ -110,10 +152,13 @@ export class Game {
   _grantUnlocks(cond) {
     const cur = Array.isArray(this.data.unlocked) ? this.data.unlocked : [];
     const granted = gradeUnlocks(cur, cond);
-    if (!granted.length) return;
+    if (!granted.length) return granted;
     this.data.unlocked = cur.concat(granted);
+    // V2.8.0：累计本局解锁，供结算页展示 (FR-1.4)
+    if (this.stats) this.stats.unlocked = (this.stats.unlocked || []).concat(granted);
     save(this.backend, this.data);
     this.say('解锁新战机：' + granted.map((id) => shipById(id).name).join('、'), 3.2);
+    return granted;
   }
 
   // 主循环步；dt 已钳制 0.1。仅 PLAYING 推进逻辑 (FR-CORE-03)。
@@ -135,9 +180,11 @@ export class Game {
   }
 
   // v2.4 难度递进：随存活时间连续增长（不是一档一跳），含敌机射速。
-  // level = 存活秒数 / TIME_STEP，封顶 MAX_STEPS（120 秒后不再变难）。
+  // level = 存活秒数 / TIME_STEP，封顶 MAX_STEPS。
+  // V2.8.0：封顶改由 MODES[mode].rampMaxSteps 决定 —— 无尽模式难度持续上涨 (FR-2.2/2.4)。
   rampLevel() {
-    return Math.max(0, Math.min(RAMP.MAX_STEPS, this.runTime / RAMP.TIME_STEP));
+    const cap = this.modeCfg.rampMaxSteps ?? RAMP.MAX_STEPS;
+    return Math.max(0, Math.min(cap, this.runTime / RAMP.TIME_STEP));
   }
   rampScale() {
     const s = this.rampLevel();
@@ -151,8 +198,16 @@ export class Game {
   }
 
   update(dt) {
+    // V2.8.0 命中停顿 Hitstop (FR-3.4)：冻结世界推进 2~4 帧强化重量感。
+    // 仅跳过世界推进，不修改 dt、不丢弃输入状态，故操作手感不受影响。
+    if (this.hitstop > 0) { this.hitstop = Math.max(0, this.hitstop - dt); return; }
     const p = this.player;
     this.runTime += dt; // v2.4 难度递进计时
+    // V2.8.0 连击窗口 (FR-3.3)：超过 COMBO_WINDOW 未再击破则连击归零
+    if (this.comboTimer > 0) {
+      this.comboTimer -= dt;
+      if (this.comboTimer <= 0) { this.combo = 0; this.comboTimer = 0; }
+    }
     const inp = this.input ? this.input.state : { left: false, right: false, up: false, down: false, fire: false, precision: false };
     // 拖动目标
     if (this.input && this.input.dragId !== null) {
@@ -160,21 +215,42 @@ export class Game {
       p.y = clamp(this.input.dragY, p.hitR, VIEW.H - p.hitR);
     }
     const shots = p.update(dt, inp, inp.precision);
-    if (shots) { for (const s of shots) this.pBullets.push(new Bullet(s.x, s.y, s.vx, s.vy, { dmg: s.dmg, fromPlayer: true, homing: s.homing, sway: s.sway, swayAmp: s.swayAmp, swayFreq: s.swayFreq, swayPhase: s.swayPhase, r: 4 })); this.audio.sfx('shoot'); }
+    if (shots) {
+      this.stats.shotsFired += shots.length; // V2.8.0 命中率统计 (FR-1.4)
+      for (const s of shots) this.pBullets.push(new Bullet(s.x, s.y, s.vx, s.vy, { dmg: s.dmg, fromPlayer: true, homing: s.homing, sway: s.sway, swayAmp: s.swayAmp, swayFreq: s.swayFreq, swayPhase: s.swayPhase, r: 4 }));
+      this.audio.sfx('shoot');
+    }
 
-    // 波次（v2.6：达到本区清理阈值即停止刷怪）
+    // ── 波次与 Boss 触发 ────────────────────────────────────────────────
+    // 战役：达到本区清理阈值即停止刷怪，清屏后拉区末 Boss（FR-2.1）；
+    // 无尽：持续刷怪、难度随时间上涨，每 bossEliteEvery 波出精英 Boss（FR-2.2）。
+    const endless = !!this.modeCfg.endless;
     if (this.waves && !this.waves.done) {
-      if (this.regionKills >= this.regionQuota) this.waves.done = true;
+      if (!endless && this.regionKills >= this.regionQuota) this.waves.done = true;
       else {
         const spawned = this.waves.update(dt, this.rampScale()); // v2.4 按时间成长
         this.enemies.push(...spawned);
       }
     }
-    // Boss 触发：波次完成且场上无普通敌机
-    if (this.waves && this.waves.done && !this.boss && this.enemies.length === 0) {
-      this.boss = new Boss(this.regionIndex);
-      this.audio.setTrack?.(this.regionIndex, true); // v2.6.1 Boss 战切紧张版
-      performance.mark?.('boss_enter');
+    if (!this.boss && this.enemies.length === 0) {
+      if (!endless) {
+        if (this.waves && this.waves.done) this._spawnBoss();
+      } else {
+        const every = this.modeCfg.bossEliteEvery || 8;
+        const cycle = Math.floor((this.waves?.idx || 0) / every);
+        if (cycle > this.bossCycle) { this.bossCycle = cycle; this._spawnBoss(); }
+      }
+    }
+
+    // ── Anti-Deadlock 兜底 (FR-1.3) ──────────────────────────────────────
+    // 无敌人 / 无 Boss / 无待重整队列持续超过 DEADLOCK_TIMEOUT 秒，强制推进流程，
+    // 杜绝"屏幕空空却永远不结束"的死锁（例如残敌卡在屏外、波次导演异常收尾）。
+    const noTarget = this.enemies.length === 0 && !this.boss && this.rally.length === 0;
+    if (noTarget) {
+      this.idleTime += dt;
+      if (this.idleTime >= ENDGAME.DEADLOCK_TIMEOUT) { this.idleTime = 0; this._breakDeadlock(); }
+    } else {
+      this.idleTime = 0;
     }
 
     // 敌机更新 + 开火（v2.7：传入玩家位置，自爆机据此追踪俯冲）
@@ -200,7 +276,12 @@ export class Game {
     // Boss 更新
     if (this.boss) {
       const fire = this.boss.update(dt, this.difficulty);
-      if (this.boss.syncPhase()) { this.eBullets = []; this.audio.sfx('alarm'); }
+      if (this.boss.syncPhase()) {
+        this.eBullets = [];
+        this.audio.sfx('alarm');
+        this.audio.sfx('bossPhase');  // V2.8.0 Boss 阶段切换音效 (FR-3.5)
+        this.applyHitstop();          // V2.8.0 阶段切换命中停顿 (FR-3.4)
+      }
       if (fire) this.fireBossPattern();
       if (this.boss.hp <= 0) this.onBossDead();
     }
@@ -234,6 +315,11 @@ export class Game {
     // 粒子
     for (const pt of this.particles) pt.update(dt);
     this.particles = this.particles.filter((pt) => !pt.dead);
+    // V2.8.0 冲击波环与分数飘字 (FR-3.2)
+    for (const s of this.shockwaves) s.update(dt);
+    this.shockwaves = this.shockwaves.filter((s) => !s.dead);
+    for (const f of this.floats) f.update(dt);
+    this.floats = this.floats.filter((f) => !f.dead);
 
     // 短提示倒计时 + 炸弹按钮按下反馈
     if (this.toast) { this.toast.t -= dt; if (this.toast.t <= 0) this.toast = null; }
@@ -333,6 +419,10 @@ export class Game {
         if (e.dead) continue;
         if (Math.hypot(b.x - e.x, b.y - e.y) <= e.hitR + b.r) {
           e.hp -= b.dmg; b.dead = true;
+          this.stats.shotsHit += 1;                 // V2.8.0 命中率统计 (FR-1.4)
+          e.hitFlash();                             // V2.8.0 命中闪烁 (FR-3.1)
+          this.spawnHitSpark(b.x, b.y);             // V2.8.0 命中火花 (FR-3.1)
+          this.audio.sfx('hit', this.combo);        // V2.8.0 命中音效，音高随连击微升
           this.addOverdrive(b.dmg * OVERDRIVE.PER_DMG); // v2.6 命中积攒超载能量
           if (e.hp <= 0) this.killEnemy(e);
           break;
@@ -341,6 +431,9 @@ export class Game {
       if (!b.dead && this.boss && !this.boss.entering) {
         if (Math.hypot(b.x - this.boss.x, b.y - this.boss.y) <= BOSS.HIT_RADIUS + b.r) { // v2.7 命中半径入 config
           this.boss.hp -= b.dmg; b.dead = true;
+          this.stats.shotsHit += 1;
+          this.spawnHitSpark(b.x, b.y);
+          this.audio.sfx('hit', this.combo);
           this.addOverdrive(b.dmg * OVERDRIVE.PER_DMG); // v2.6 打 Boss 同样积攒
         }
       }
@@ -350,7 +443,15 @@ export class Game {
       if (b.dead) continue;
       const d = Math.hypot(b.x - p.x, b.y - p.y);
       if (d <= p.hitR + b.r) {
-        if (p.takeHit(b.dmg)) { this.onPlayerHit(); b.dead = true; }
+        if (p.shield > 0 && p.alive) {
+          // V2.8.0 护盾挡下：火花 + 破碎音效（0.3s 节流，避免弹幕密集时音爆）(FR-3.5)
+          if (this.t - (this._shieldSfxT || -1) > 0.3) {
+            this._shieldSfxT = this.t;
+            this.audio.sfx('shieldBreak');
+            this.spawnHitSpark(b.x, b.y);
+          }
+          b.dead = true;
+        } else if (p.takeHit(b.dmg)) { this.onPlayerHit(); b.dead = true; }
       } else if (d <= GLOBAL.GRAZE_OUTER && p.alive) {
         if (this.graze.check(b.id, d)) { this.score += SCORE.GRAZE; this.addOverdrive(OVERDRIVE.PER_GRAZE); } // v2.6 擦弹也积攒
       }
@@ -418,24 +519,83 @@ export class Game {
     performance.mark?.('overdrive');
   }
 
+  // V2.8.0 击破 (FR-3.2/3.3)：连击累积 + 倍率计分 + 多层爆炸 + 音效 + 分数飘字 + 轻震屏。
   killEnemy(e) {
     e.dead = true;
-    this.score += e.score;
+    this.registerKill(); // 连击计数与倍率 (FR-3.3)
+    const gained = this.addScore(e.score); // 分数 × 连击倍率 × 模式倍率
+    this.stats.kills += 1;
     this.regionKills += 1; // v2.6 本区清理计数（达标即出 Boss）
     this.addOverdrive(OVERDRIVE.PER_KILL); // v2.6 击破积攒超载能量
-    this.spawnExplosion(e.x, e.y, e.radius);
-    this.audio.sfx('explosion');
-    const drop = rollDrop(e.type);
+    const heavy = e.type === 'tank' || e.type === 'turret';
+    this.spawnKillFx(e.x, e.y, e.radius, heavy);
+    this.audio.sfx(heavy ? 'killHeavy' : 'kill'); // 分机型击破音效 (FR-3.5)
+    // 分数飘字：连击 ≥2 时附带倍率提示 (FR-3.2)
+    const label = this.combo > 1 ? `+${gained} ×${this.comboMult.toFixed(2)}` : `+${gained}`;
+    this.addFloat(e.x, e.y, label, this.combo > 1 ? '#ffd166' : '#ffffff');
+    const drop = rollDrop(e.type, Math.random, this.modeCfg.dropChance);
     // v2.6：带下落初速出场，视觉上"抛出即下落"
     if (drop) this.drops.push({ x: e.x, y: e.y, kind: drop, vy: DROPS.FALL_V0 });
   }
 
-  spawnExplosion(x, y, r) {
-    const n = Math.min(30, Math.round(r * 1.2)) * (this.settings.motion === 'reduced' ? 0.5 : 1);
+  // 连击累积 (FR-3.3)：窗口内连续击破累加，超时由 update 归零。
+  registerKill() {
+    this.combo += 1;
+    this.comboTimer = FEEL.COMBO_WINDOW;
+    if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+  }
+
+  // 分数飘字 (FR-3.2)
+  addFloat(x, y, text, color) {
+    if (this.reducedMotion) return; // 减弱动效档不飘字（避免额外绘制开销）
+    this.floats.push(new FloatText(x, y, text, color));
+  }
+
+  // 命中停顿 (FR-3.4)：重型敌机 / Boss 阶段切换时冻结 2~4 帧，强化重量感。
+  applyHitstop(frames = null) {
+    if (this.reducedMotion) return; // FR-3.6 降级：减弱动效档关闭停顿
+    const f = frames ?? FEEL.HITSTOP_FRAMES;
+    this.hitstop = Math.max(this.hitstop, f / (FEEL.HITSTOP_FPS || 60));
+  }
+
+  // 命中火花 (FR-3.1)：子弹命中敌机时的白色火花，方向沿子弹飞行方向散开。
+  spawnHitSpark(x, y) {
+    const n = this.reducedMotion ? Math.ceil(FEEL.SPARK_COUNT / 2) : FEEL.SPARK_COUNT;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 120;
+      this.particles.push(new Particle(x, y, Math.cos(a) * sp, Math.sin(a) * sp, 0.12 + Math.random() * 0.12, '#ffffff', 1.6 + Math.random() * 1.4));
+    }
+  }
+
+  // 多层爆炸 (FR-3.2)：核心闪光 → 冲击波环 → 碎片 → 烟雾，四层叠加形成重量感。
+  spawnKillFx(x, y, r, heavy = false) {
+    const scale = this.reducedMotion ? 0.5 : 1; // FR-3.6 降级：粒子减半
+    // ① 核心闪光
+    this.shockwaves.push(new Shockwave(x, y, 2, r * 1.6, 0.22, '#ffffff'));
+    // ② 冲击波环
+    this.shockwaves.push(new Shockwave(x, y, r * 0.6, r * (heavy ? 3.2 : 2.4), heavy ? 0.45 : 0.34, '#ffd166'));
+    // ③ 碎片
+    const n = Math.round(Math.min(30, Math.round(r * 1.2)) * scale);
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 160;
       this.particles.push(new Particle(x, y, Math.cos(a) * sp, Math.sin(a) * sp, 0.4 + Math.random() * 0.4, '#ffcf6b', 2 + Math.random() * 2));
     }
+    // ④ 烟雾（低速暗色粒子，延长余韵）
+    const smoke = Math.round((heavy ? 10 : 5) * scale);
+    for (let i = 0; i < smoke; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 10 + Math.random() * 40;
+      this.particles.push(new Particle(x, y, Math.cos(a) * sp, Math.sin(a) * sp, 0.6 + Math.random() * 0.5, '#6b5b4a', 3 + Math.random() * 3));
+    }
+    // 轻震屏（重型与 Boss 更重）
+    if (!this.reducedMotion) {
+      this.shake = Math.max(this.shake, heavy ? FEEL.SHAKE_HEAVY : FEEL.SHAKE_LIGHT);
+    }
+    if (heavy) this.applyHitstop(); // 重型敌机命中停顿 (FR-3.4)
+  }
+
+  spawnExplosion(x, y, r) {
+    // 兼容旧调用点：统一走多层爆炸
+    this.spawnKillFx(x, y, r, false);
   }
 
   applyDrop(d) {
@@ -454,50 +614,127 @@ export class Game {
   }
 
   onPlayerHit() {
-    this.flash = 0.6; this.shake = 0.25; // 白闪≤120ms 由 decay 控制；震动≤250ms
-    this.audio.sfx('explosion');
+    this.stats.hitsTaken += 1;   // V2.8.0：结算评级"无伤"判定依据 (FR-1.4)
+    this.combo = 0; this.comboTimer = 0; // 受击打断连击 (FR-3.3)
+    this.flash = 0.6;
+    if (!this.reducedMotion) this.shake = 0.25; // 白闪≤120ms 由 decay 控制；震动≤250ms
+    this.audio.sfx('playerHit');  // V2.8.0 玩家受击专属音效 (FR-3.5)
+    if (!this.reducedMotion) this.applyHitstop(2);
     performance.mark?.('player_hit');
   }
 
+  // V2.8.0 Boss 击破：按模式分流转——
+  // 战役最后一区 → victory (FR-1.1)；战役中途 → region-clear 过渡 (FR-1.5)；无尽 → 循环继续 (FR-2.2)。
   onBossDead() {
-    this.score += SCORE.BOSS_KILL;
-    this.spawnExplosion(this.boss.x, this.boss.y, 60);
-    this.spawnExplosion(this.boss.x, this.boss.y, 90); // v2.7：Boss 击破追加一圈大爆炸
+    const bx = this.boss.x, by = this.boss.y;
+    this.stats.bossKills += 1;
+    this.addScore(SCORE.BOSS_KILL);
+    this.spawnKillFx(bx, by, 60, true);
+    this.spawnKillFx(bx, by, 90, true); // v2.7：Boss 击破追加一圈大爆炸
     this.flash = Math.max(this.flash, 0.45); // v2.7：Boss 击破白闪
-    this.shake = Math.max(this.shake, 0.5);  // v2.7：Boss 击破震屏
+    if (!this.reducedMotion) this.shake = Math.max(this.shake, 0.5); // v2.7：Boss 击破震屏
+    this.applyHitstop(4); // V2.8.0：Boss 击破命中停顿 (FR-3.4)
+    this.audio.sfx('bossDie');
     this.boss = null;
-    this.score += SCORE.REGION_CLEAR;
+    this.addScore(SCORE.REGION_CLEAR);
+
+    if (this.modeCfg.endless) {
+      // 无尽模式：无胜利条件，区域视觉循环，继续刷波 (FR-2.2)
+      this.regionIndex = (this.regionIndex + 1) % REGIONS.length;
+      if (this.waves) this.waves.region = this.regionIndex;
+      this.regionKills = 0;
+      this.transition = 1.6;
+      this.audio.setTrack?.(this.regionIndex); // 换区换曲
+      this.say(`第 ${this.stats.bossKills} 个精英 Boss 击破！继续推进`, 2.0);
+      return; // 保持 playing，不进入过渡态
+    }
+
     if (this.regionIndex >= REGIONS.length - 1) {
-      this.sm.transition(STATES.WIN);
+      // FR-1.1 战役胜利条件：击败第 3 区最终 Boss
+      this.sm.transition(STATES.VICTORY);
       this.audio.sfx('win');
       this._grantUnlocks({ win: true, regionReached: REGIONS.length });
-      this.finishRun();
+      this.finishRun('victory');
     } else {
       this.regionIndex += 1;
       this._grantUnlocks({ regionReached: this.regionIndex + 1 }); // 到达新区 -> 发放该区对应战机
-      this.transition = 2.2; // 区域过渡无敌 (FR-LVL-05)
+      this.transition = ENDGAME.REGION_CLEAR_TIME; // 区域过渡无敌 (FR-LVL-05)
       this.waves = new WaveDirector(this.regionIndex, this.settings.difficulty);
       this.regionKills = 0; // v2.6 新区重新计阈值
       this.audio.setTrack?.(this.regionIndex); // v2.6.1 换区换曲
-      this.sm.transition(STATES.CLEAR);
-      setTimeout(() => { if (this.sm.is(STATES.CLEAR)) this.sm.transition(STATES.PLAYING); }, 2200);
+      // FR-1.5：进入区域通关过渡态，演出结束后自动回到 playing
+      this.sm.transition(STATES.REGION_CLEAR);
+      setTimeout(() => { if (this.sm.is(STATES.REGION_CLEAR)) this.sm.transition(STATES.PLAYING); }, ENDGAME.REGION_CLEAR_TIME * 1000);
+      this.say(`第 ${this.regionIndex} 区突破！`, 2.0);
     }
   }
 
   onGameOver() {
     if (this.sm.is(STATES.GAMEOVER)) return;
-    this.sm.transition(STATES.GAMEOVER);
-    this.finishRun();
+    this.sm.transition(STATES.GAMEOVER);        // FR-1.2 生命耗尽即失败
+    this.finishRun('gameover');
   }
 
-  finishRun() {
+  // V2.8.0 统一结算 (FR-1.4)：胜负均进入，产出评级与全部统计。
+  finishRun(outcome = 'gameover') {
+    // 分数解锁先结算，保证「本局解锁」能进结算数据 (FR-1.4)
+    this._grantUnlocks({ score: this.score });
     const date = new Date().toISOString().slice(0, 10);
     const duration = Math.round((performance.now() - this.runStart) / 1000);
-    const run = { score: this.score, difficulty: this.settings.difficulty, date, duration, region: this.regionIndex + 1 };
-    this._grantUnlocks({ score: this.score }); // 分数达标解锁 (凤凰)
-    this.data = recordRun(this.data, run);
+    const acc = this.stats.shotsFired ? this.stats.shotsHit / this.stats.shotsFired : 0;
+    const noMiss = this.stats.hitsTaken === 0;
+    const grade = gradeRun({ score: this.score, noMiss });
+    this.summary = {
+      outcome,                 // 'victory' | 'gameover'
+      mode: this.mode,
+      modeLabel: this.modeCfg.label,
+      score: this.score,
+      grade,
+      kills: this.stats.kills,
+      bossKills: this.stats.bossKills,
+      maxCombo: this.maxCombo,
+      accuracy: acc,           // 命中率 0~1
+      duration,                // 对局用时（秒）
+      region: this.regionIndex + 1,
+      difficulty: this.settings.difficulty,
+      date,
+      noMiss,
+      unlocked: (this.stats.unlocked || []).slice(), // 本局解锁的战机 id (FR-1.4)
+      unlockedNames: (this.stats.unlocked || []).map((id) => shipById(id).name),
+    };
+    const run = {
+      score: this.score, difficulty: this.settings.difficulty, date, duration,
+      region: this.regionIndex + 1, mode: this.mode, grade,
+    };
+    this.data = recordRun(this.data, run);     // 分模式写入，战役/无尽互不覆盖 (FR-2.5)
     save(this.backend, this.data); // 失败静默降级 (FR-SAV-02)
     this.audio.stopMusic(); // v2.6.1 结算时停掉 BGM
+    return this.summary;
+  }
+
+  // 召唤 Boss（战役区末 Boss / 无尽精英 Boss 共用）
+  _spawnBoss() {
+    if (this.boss) return;
+    this.boss = new Boss(this.regionIndex);
+    this.audio.setTrack?.(this.regionIndex, true); // v2.6.1 Boss 战切紧张版
+    this.audio.sfx?.('bossSpawn');                 // V2.8.0 Boss 出场音效 (FR-3.5)
+    if (!this.reducedMotion) this.shake = Math.max(this.shake, 0.3);
+    performance.mark?.('boss_enter');
+  }
+
+  // V2.8.0 Anti-Deadlock 强制推进 (FR-1.3)：空屏超过 DEADLOCK_TIMEOUT 秒必定打破僵局。
+  _breakDeadlock() {
+    if (this.modeCfg.endless) {
+      // 无尽：直接把精英 Boss 提上场（并把本轮波次标记为已结算，避免重复触发）
+      this.bossCycle = Math.floor((this.waves?.idx || 0) / (this.modeCfg.bossEliteEvery || 8)) + 1;
+      this._spawnBoss();
+      this.say('战场空置过久：精英 Boss 提前登场', 2.4);
+      return;
+    }
+    // 战役：波次未收尾则强制收尾，随后立即召唤区末 Boss
+    if (this.waves && !this.waves.done) this.waves.done = true;
+    this._spawnBoss();
+    this.say('战场空置过久：Boss 提前登场', 2.4);
   }
 
   // 设置变更后持久化 (FR-SYS-01/07)。
