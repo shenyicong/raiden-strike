@@ -7,7 +7,7 @@ import {
 // 首次运行默认值 (FR-SYS-07)。系统 prefers-reduced-motion 时 motion='reduced' 由调用方覆盖。
 export function defaultSettings(prefersReducedMotion = false) {
   return {
-    volume: { master: 70, sfx: 70, music: 50 },
+    volume: { master: 70, sfx: 70, music: 85 }, // v2.6.2 默认音乐音量调高（修复"没音乐"）
     hitboxDot: true,
     motion: prefersReducedMotion ? 'reduced' : 'standard',
     difficulty: 'standard',
