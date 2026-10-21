@@ -114,7 +114,10 @@ export class Enemy {
   }
   get hitR() { return this.radius * ENEMY_HIT_FACTOR; }
 
-  update(dt, difficulty) {
+  // v2.7：自爆机改为"追踪俯冲"——朝玩家当前位置偏转，但保持向下的主导动量，
+  // 永不反向上升（玩家在上方时仍继续下坠，避免飞出战场）。
+  // player 由 Game 传入（可选；未传时回退到 targetX / 画面下缘）。
+  update(dt, difficulty, player) {
     this.t += dt;
     const intMult = difficulty?.intervalMult ?? 1;
     switch (this.behavior) {
@@ -125,11 +128,21 @@ export class Enemy {
         break;
       case 'slow': this.y += this.speed * dt; break;
       case 'dive': {
-        // 朝玩家方向俯冲
-        const tx = this.targetX ?? VIEW.W / 2;
-        const ang = Math.atan2(VIEW.H, tx - this.x);
-        this.x += Math.cos(ang) * this.speed * dt * 0.4;
-        this.y += this.speed * dt;
+        const alive = !!(player && player.alive);
+        const tx = alive ? player.x : (this.targetX ?? VIEW.W / 2);
+        const ty = alive ? player.y : VIEW.H + 60;
+        const ang = Math.atan2(ty - this.y, tx - this.x);
+        const sp = this.speed;
+        let vx = Math.cos(ang) * sp;
+        let vy = Math.sin(ang) * sp;
+        if (vy < sp * 0.55) {
+          // 垂直分量不足时钳制为向下 0.55×（水平分量相应收敛，保持总速率 ≈ 速度规格）
+          const horiz = Math.sqrt(1 - 0.55 * 0.55) * sp;
+          vx = (vx >= 0 ? 1 : -1) * Math.min(Math.abs(vx), horiz);
+          vy = sp * 0.55;
+        }
+        this.x += vx * dt;
+        this.y += vy * dt;
         break;
       }
       case 'static':
