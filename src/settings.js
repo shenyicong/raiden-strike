@@ -13,10 +13,14 @@ export function sliderToGain(slider0to100) {
 export function busGains(settings) {
   const v = settings.volume || { master: 70, sfx: 70, music: 50 };
   const master = sliderToGain(v.master);
+  // v2.6.2：音乐总线单独提高可用响度。原公式 master × sliderToGain(music) 在默认下仅约 0.004（≈-48dB），
+  // 即便合成器音量正常也几乎听不见（"没音乐"的根因）。这里给音乐 2.6× 增益上限封顶 1.0，
+  // 保证"能听见"；master=0 时仍静音（音乐随主音量联动）。
+  const musicRaw = v.master > 0 ? sliderToGain(v.music) * 2.6 : 0;
   return {
     master,
     sfx: master * sliderToGain(v.sfx),
-    music: master * sliderToGain(v.music),
+    music: Math.min(1, musicRaw),
   };
 }
 
