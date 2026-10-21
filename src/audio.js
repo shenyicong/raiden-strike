@@ -62,6 +62,8 @@ export class AudioEngine {
     this.musicTimer = null;
     this.unlocked = false;
     this.suspendedSince = 0;
+    this._musicSteps = 0;   // v2.7.0 已调度的音乐步数（诊断用）
+    this._lastErr = null;   // v2.7.0 最近一次异常（诊断用）
   }
 
   // 首次用户交互时调用（FR-CORE-02 / FR-SYS-08）。
@@ -115,7 +117,10 @@ export class AudioEngine {
   }
 
   _blip(freq, dur, type = 'square', bus = 'sfx', gain = 0.3, at = null) {
-    if (!this.ctx || this.ctx.state !== 'running') return;
+    if (!this.ctx) return;
+    // v2.7.0：上下文未 running 时先尝试唤醒（用户手势内才真正生效），并丢弃该次发声——
+    // 比"静默 return"更利于诊断，且任何一次发声尝试都会推动 autoplay 解锁。
+    if (this.ctx.state !== 'running') { this.ctx.resume?.().catch(() => {}); return; }
     const o = this.ctx.createOscillator();
     const g = this.ctx.createGain();
     o.type = type; o.frequency.value = freq;
@@ -130,7 +135,8 @@ export class AudioEngine {
   // 打击乐：白噪声经高通滤波做 hi-hat / 军鼓（零素材，纯合成）
   _perc(at, dur = 0.05, gain = 0.10, freq = 7000) {
     // 音频能力缺失/异常时静默降级，绝不打断游戏 (NFR-REL-03 / R-01)
-    if (!this.ctx || this.ctx.state !== 'running') return;
+    if (!this.ctx) return;
+    if (this.ctx.state !== 'running') { this.ctx.resume?.().catch(() => {}); return; }
     if (!this.ctx.createBuffer || !this.ctx.createBufferSource) return;
     if (!this._noiseBuf) {
       const len = Math.floor(this.ctx.sampleRate * 0.4);
@@ -148,17 +154,17 @@ export class AudioEngine {
     src.start(at); src.stop(at + dur + 0.02);
   }
 
-  // 六类音效 (FR-PRS-03)。
+  // 六类音效 (FR-PRS-03)。v2.7.0：单音增益整体上调（此前受 busGains 双重对数衰减影响，音效也几不可闻）。
   sfx(name) {
     switch (name) {
-      case 'shoot':    this._blip(880, 0.06, 'square', 'sfx', 0.12); break;
-      case 'explosion':this._blip(120, 0.25, 'sawtooth', 'sfx', 0.3); break;
-      case 'pickup':   this._blip(660, 0.08, 'triangle', 'sfx', 0.25); break;
-      case 'powerup':  this._blip(520, 0.12, 'square', 'sfx', 0.3); this._blip(780, 0.12, 'square', 'sfx', 0.25); break;
-      case 'alarm':    this._blip(300, 0.18, 'sawtooth', 'sfx', 0.25); break;
+      case 'shoot':    this._blip(880, 0.06, 'square', 'sfx', 0.22); break;
+      case 'explosion':this._blip(120, 0.25, 'sawtooth', 'sfx', 0.45); break;
+      case 'pickup':   this._blip(660, 0.08, 'triangle', 'sfx', 0.3); break;
+      case 'powerup':  this._blip(520, 0.12, 'square', 'sfx', 0.38); this._blip(780, 0.12, 'square', 'sfx', 0.3); break;
+      case 'alarm':    this._blip(300, 0.18, 'sawtooth', 'sfx', 0.32); break;
       // v2.6 超载爆发：低频轰鸣 + 高频扫尾
-      case 'overdrive':this._blip(150, 0.38, 'sawtooth', 'sfx', 0.32); this._blip(920, 0.22, 'square', 'sfx', 0.2); break;
-      case 'win':      this._blip(523, 0.2, 'triangle', 'music', 0.3); this._blip(784, 0.3, 'triangle', 'music', 0.3); break;
+      case 'overdrive':this._blip(150, 0.38, 'sawtooth', 'sfx', 0.45); this._blip(920, 0.22, 'square', 'sfx', 0.3); break;
+      case 'win':      this._blip(523, 0.2, 'triangle', 'music', 0.35); this._blip(784, 0.3, 'triangle', 'music', 0.35); break;
     }
   }
 
@@ -178,10 +184,15 @@ export class AudioEngine {
 
   // 启动 BGM。v2.7：第二参数 boss 决定恢复/启动时使用 Boss 紧张版还是关卡主题，
   // 修复"Boss 战中暂停再恢复，音乐从紧张版错误切回关卡主题"的问题。
+  // v2.7.0：进入时若上下文尚未 running 立即同步触发 resume() —— 本方法必须在用户手势内被调用才有效
+  // （自动播放策略要求 resume 发生于手势上下文，否则上下文永远 suspended，所有声音静默）。
   startMusic(region = 0, boss = false) {
-    if (!this.ctx || this.musicTimer) return;
+    if (!this.ctx) return;
+    // v2.7.0：若上一局残留 timer 未清（如异常路径），先清除再启动，避免"提前 return 导致永远不响"。
+    if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; }
     this.setTrack(region, boss);
     this._nextNoteTime = this.ctx.currentTime + 0.08;
+    if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {}); // 同步触发恢复（手势内调用即生效）
     const tick = () => {
       if (!this.ctx) return;
       // v2.6.2：上下文被挂起（自动播放策略 / 切后台）时持续尝试恢复，恢复成功后自然开始放乐，
@@ -198,7 +209,7 @@ export class AudioEngine {
           this._nextNoteTime += stepDur;
           this.step = (this.step + 1) % 64;
         }
-      } catch { this.stopMusic(); } // 合成失败就收声，不影响游戏 (NFR-REL-03)
+      } catch (e) { this._lastErr = String((e && e.message) || e); this.stopMusic(); } // 合成失败就收声，不影响游戏 (NFR-REL-03)
     };
     tick();
     this.musicTimer = setInterval(tick, 25);
@@ -207,6 +218,7 @@ export class AudioEngine {
   _scheduleStep(step, at, stepDur) {
     const t = this.track;
     if (!t) return;
+    this._musicSteps = (this._musicSteps || 0) + 1; // v2.7.0 诊断计数
     const i = step % t.bass.length;
     const midi = (m) => 440 * Math.pow(2, (m - 69) / 12);
     // v2.6.2：合成器单音音量整体上调（原 0.16/0.10/0.07/0.055/0.28），
@@ -225,5 +237,19 @@ export class AudioEngine {
   stopMusic() {
     if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; }
     this.step = 0;
+  }
+
+  // v2.7.0：诊断快照——HUD 徽标与控制台排错共用。
+  debug() {
+    return {
+      supported: !!this.ctx,
+      state: this.ctx ? this.ctx.state : 'none',
+      musicTimer: !!this.musicTimer,
+      musicSteps: this._musicSteps || 0,
+      track: this._trackKey || null,
+      muted: this.buses ? this.buses.master.gain.value === 0 : false,
+      musicGain: this.buses ? +this.buses.music.gain.value.toFixed(3) : null,
+      lastErr: this._lastErr || null,
+    };
   }
 }
