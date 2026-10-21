@@ -2,7 +2,7 @@
 // NFR-MAINT-01: 全部平衡性参数集中于单一配置文件。
 
 // 游戏版本号：标题界面 / README 徽章 / package.json 均以此为准，随版本更新同步修改。
-export const VERSION = '2.6.1';
+export const VERSION = '2.7.0';
 
 export const VIEW = {
   W: 480,            // 逻辑分辨率宽 (6.1)
@@ -16,6 +16,7 @@ export const GLOBAL = {
   PARTICLE_POOL: 1400,    // 粒子并发硬上限 (6.1)
   ATTRACT_RADIUS: 130,    // 道具自动吸附触发距离 (px) (6.1)
   PLAYER_BULLET_SPEED: 700, // 玩家子弹速度 px/s (6.1)
+  ENEMY_BULLET_SPEED: 150, // 普通敌弹基础速度 px/s（v2.7 由字面量集中化）
   GRAZE_INNER: 9,         // 擦弹内半径 = 判定半径 (6.1/6.2)
   GRAZE_OUTER: 21,        // 擦弹外半径 (FR-CBT-07)
 };
@@ -58,12 +59,14 @@ export const DEFAULT_SHIP_ID = 'raiden';
 
 // 五级火力 (6.3)。energyToNext = 从本级升到下一级所需能量；power 道具固定 +34 能量 (6.6 统一)。
 // 满级共需 100+120+150+200 = 570 能量。
+// v2.7 修正：pellets（弹道数）与 spawnPlayerShots 实际发射数一致（Lv.4 双列+1追踪=3、Lv.5 全弹幕=6），
+//          此前 Lv.4/Lv.5 标称与实发不符，导致 theoreticalDps / Boss 阶段时长模型失真。
 export const WEAPONS = [
   { level: 1, name: '单发',       fireRate: 8.0,  dmg: 7, pellets: 1, energyToNext: 100 },
   { level: 2, name: '双列',       fireRate: 8.6,  dmg: 7, pellets: 2, energyToNext: 120 },
   { level: 3, name: '中央重炮+散射', fireRate: 9.2,  dmg: 8, pellets: 3, energyToNext: 150 },
-  { level: 4, name: '交替追踪弹',   fireRate: 9.8,  dmg: 8, pellets: 4, energyToNext: 200 },
-  { level: 5, name: '全弹幕+双追踪', fireRate: 10.5, dmg: 9, pellets: 4, energyToNext: 0   },
+  { level: 4, name: '交替追踪弹',   fireRate: 9.8,  dmg: 8, pellets: 3, energyToNext: 200 },
+  { level: 5, name: '全弹幕+双追踪', fireRate: 10.5, dmg: 9, pellets: 6, energyToNext: 0   },
 ];
 export const POWER_PER_ITEM = 34; // 单个火力道具能量 (6.6 统一)
 export const MAX_LEVEL = WEAPONS.length;
@@ -82,14 +85,16 @@ export const ENEMY_HIT_FACTOR = 0.82; // 敌机命中半径系数
 
 // 掉落规格 (6.6)
 // v2.4：护盾/生命进入随机池，各自独立爆率（LIFE_CHANCE / SHIELD 权重），火力仍由重型必掉保底。
+// v2.6.2：下调生命爆率（权重池 life 0.18→0.08、独立爆率 0.06→0.025），同时上调火力(弹道)道具权重
+//          （power 0.42→0.55），让"弹道道具"更容易获得，生命更稀缺。
 export const DROPS = {
   BASE_CHANCE: 0.20,  // 每架敌机基础掉落概率（v2.3 上调，补给更充足）
-  WEIGHTS: { power: 0.42, bomb: 0.18, shield: 0.22, life: 0.18 }, // 池内权重（v2.4 加入生命）
+  WEIGHTS: { power: 0.55, bomb: 0.17, shield: 0.20, life: 0.08 }, // 池内权重（v2.6.2 火力↑生命↓）
   HEAVY_FORCED: ['tank', 'turret'], // 重型单位必掉，且优先火力
   POWER_FULL_BONUS: 50, // 满级后拾取火力道具折算分
   BOMB_MAX: 9,
   SHIELD_DURATION: 5, // 护盾无敌 5s
-  LIFE_CHANCE: 0.06,  // 额外判定：非重型敌机 6% 概率单独掉生命（与权重池叠加）
+  LIFE_CHANCE: 0.025,  // 额外判定：非重型敌机 2.5% 概率单独掉生命（v2.6.2 由 6% 下调）
   SHIELD_CHANCE: 0.10, // 额外判定：10% 概率单独掉护盾
   // v2.6：道具爆出后自动下落（带初速与加速度，到顶速后匀速），不再停在原地
   FALL_V0: 45,        // 爆出瞬间的下落初速 px/s（避免"悬停"观感）
@@ -108,14 +113,17 @@ export const RALLY = {
   ENTRY_Y: -30,    // 重新入场起始高度
 };
 
-// 超载爆发 (v2.6)：命中敌机即积攒能量，蓝条集满后自动引爆，清空当前屏幕所有敌机。
+// 超载爆发 (v2.6)：命中敌机即积攒能量，蓝条集满后引爆，清空当前屏幕所有敌机。
 // 积攒来源 = 造成伤害 + 击破 + 擦弹；Boss 不会被清屏秒杀，改为承受一次重创。
+// v2.6.2：改为「一局仅可引爆一次 + 手动释放」。集满后给出提示与按钮，何时释放由玩家决定，
+//         不再集满自动引爆（AUTO 关闭）。释放后本局蓝条归零且不再积攒。
 export const OVERDRIVE = {
   MAX: 100,          // 蓝条满值
   PER_DMG: 0.20,     // 每点伤害积攒的能量（v2.6.1 下调约 43%，爆发不再频繁）
   PER_KILL: 2.2,     // 每次击破额外积攒（原 4）
   PER_GRAZE: 0.30,   // 每次擦弹积攒（原 0.6）
-  AUTO: true,        // 集满自动引爆（关闭则改为手动，暂未暴露开关）
+  AUTO: false,       // v2.6.2：关闭自动引爆，改为集满后手动释放（按钮 / L 键）
+  ONCE_PER_RUN: true,// v2.6.2：一局仅可引爆一次
   BOSS_DAMAGE: 700,  // 引爆时对 Boss 造成的伤害
   SCORE_BONUS: 300,  // 引爆奖励分
   INVULN: 1.0,       // 引爆后无敌时长（秒）
@@ -174,7 +182,9 @@ export const BOSS = {
   SWITCH_CLEAR_TIME: 0.8, // 切换时清空敌弹并停火 (秒)
   ENTER_TIME: 2.2,        // 入场演出 (秒)
   MIN_PHASE_TIME: 6.0,    // 每阶段时长约束 ≥6 秒 (F-05)
-  PATTERNS: ['aimed', 'ring', 'cross', 'spiral'], // 四模式轮换
+  BULLET_SPEED: 132,      // Boss 弹基础速度 px/s（v2.7 由字面量集中化）
+  HIT_RADIUS: 40,         // Boss 可被命中的判定半径（机身主体，不含外圈能量环；v2.7 由字面量集中化）
+  PATTERNS: ['aimed', 'ring', 'cross', 'spiral', 'fan', 'wall', 'burst'], // v2.6.2 新增 fan/wall/burst 三种弹道
   RING_COUNT: 18,         // 环形弹数量（原 14）
   SPIRAL_COUNT: 5,        // 螺旋弹每波条数（原 3）
 };
