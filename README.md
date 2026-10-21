@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🚀 擎天战机 · RAIDEN STRIKE **V2.7.0**
+# 🚀 擎天战机 · RAIDEN STRIKE **V2.8.0**
 
 **纯原生 HTML5 + Canvas 的街机纵版弹幕射击游戏 · 零依赖 · 零图片资源 · 零构建**
 
@@ -8,7 +8,7 @@
 [![JS](https://img.shields.io/badge/JavaScript-ES%20Modules-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](#)
 [![Deps](https://img.shields.io/badge/Dependencies-0-00ff9d?style=flat-square)](#)
 [![License](https://img.shields.io/badge/License-MIT-39e7ff?style=flat-square)](#)
-[![Version](https://img.shields.io/badge/Version-2.7.0-5fa8ff?style=flat-square)](#)
+[![Version](https://img.shields.io/badge/Version-2.8.0-5fa8ff?style=flat-square)](#)
 
 ### ▶ 在线试玩 https://shenyicong.github.io/raiden-strike/
 
@@ -160,6 +160,20 @@ python -m http.server 8080      # 需要静态服务器（ES Module 限制）
 
 ---
 
+## 🆕 V2.8.0 四大模块（本版）
+
+| 模块 | 需求 | V2.8.0 处理 | 对应 FR |
+|---|---|---|---|
+| **对局终局** | 打完敌人后屏幕空空、进程不结束；命用完也结束不了 | 战役击破第 3 区旗舰 → `victory` 通关结算；生命耗尽 → `gameover`；**Anti-Deadlock**：无敌人无 Boss 超过 `DEADLOCK_TIMEOUT=5s` 自动推进；修复 `Player.update` 无条件复活导致"幽灵机永不结束" | FR‑1.1 ~ FR‑1.5 |
+| **模式系统** | 只有一条线性流程 | 标题页**战役 / 无尽**双模式选择 + 各模式最高分；无尽无限波次、难度持续上涨、每 8 波精英 Boss；`config.js → MODES` 独立配置；两模式计分与存档隔离，旧存档自动迁移 | FR‑2.1 ~ FR‑2.5 |
+| **打击感** | 打掉敌机没有反馈 | 命中闪 + 火花；四层爆炸（闪光/冲击波/碎片/烟雾）+ 震屏 + 分数飘字；连击 Combo（倍率 `1+0.02×(combo-1)` 封顶 ×2.0）；重型/Boss 的 Hitstop 命中停顿；全套 WebAudio 事件音效；`reduced-motion` 自动降级 | FR‑3.1 ~ FR‑3.6 |
+| **画风** | 战机偏平面 | 预渲染多帧 2.5D 战机 Sprite（`drawImage`，零新增依赖）；统一配色板与辉光；敌弹按危险度分色（灰蓝/亮黄/红）+ 拖尾；设置面板可回退 2D 描边版 | FR‑4.1 ~ FR‑4.4 |
+
+- 统一结算层：分数、评级 S/A/B/C、击破数、最大连击、命中率、用时、本局解锁，并提供「再来一局 / 返回标题 / 切换模式」。
+- 自动化测试：52 项（V2.7 基线）+ 18 项（V2.8 新增）= **70 项全绿**。
+
+---
+
 ## 🆕 V2.0 相对 V1.0 的修复与增强
 
 | 类别 | 问题（v1.0） | V2.0 处理 |
@@ -180,7 +194,7 @@ raiden-strike/
 ├── index.html            # 入口页面（需静态服务器；或用下面单文件版）
 ├── raiden-strike.html    # ★ V2.0 单文件自包含版：双击即玩，修复 file:// 打不开
 ├── dist.bundle.js        # 单文件版内联脚本（供无头冒烟测试）
-├── package.json          # version 2.7.0（与 src/config.js 的 VERSION 同步）
+├── package.json          # version 2.8.0（与 src/config.js 的 VERSION 同步）
 ├── LICENSE
 ├── src/                  # 17 个 ES Module（开发 / 测试用）
 │   ├── config.js         # ★ 所有平衡性参数（改这里调难度 / 手感）
