@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🚀 雷霆战机 · RAIDEN STRIKE **V2.7.0**
+# 🚀 擎天战机 · RAIDEN STRIKE **V2.7.0**
 
 **纯原生 HTML5 + Canvas 的街机纵版弹幕射击游戏 · 零依赖 · 零图片资源 · 零构建**
 
