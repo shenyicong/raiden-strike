@@ -60,7 +60,9 @@ test('Boss：波次清空后生成；血量降至 66% 切阶段', () => {
   assert.equal(g.boss.phase, 1, '应切换到阶段 2');
 });
 
-test('区域推进：Boss 击破后进入下一区（clear 态）', () => {
+// V2.8.0（FR-1.5 / PRD 附录B）：非末区 Boss 击破后进入 region-clear 过渡态，
+// 演出结束才自动回到 playing；旧用例断言的 clear/playing 已不适用。
+test('区域推进：Boss 击破后进入下一区（region-clear 过渡态）', () => {
   const g = newGame();
   g.startRun();
   g.waves.done = true; g.enemies = [];
@@ -70,7 +72,7 @@ test('区域推进：Boss 击破后进入下一区（clear 态）', () => {
   g.step(1 / 60, performance.now());
   assert.equal(g.boss, null);
   assert.equal(g.regionIndex, region0 + 1, '应推进到下一区');
-  assert.ok(g.sm.is(STATES.CLEAR) || g.sm.is(STATES.PLAYING));
+  assert.ok(g.sm.is(STATES.REGION_CLEAR), '应进入 region-clear 过渡态');
 });
 
 test('中断即暂停：playing 下失焦进入 paused', () => {
