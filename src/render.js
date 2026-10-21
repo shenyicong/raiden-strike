@@ -310,6 +310,7 @@ export class Renderer {
     ctx.fillStyle = '#fff';
     if (g.muted) { ctx.fillText('🔇', VIEW.W - 24, 30); }
     this._drawOverdriveBar(g);
+    this._drawOverdriveButton(g); // v2.6.2 集满后显示"爆发"释放按钮
   }
 
   // v2.6 超载能量条：横向蓝条，集满时高亮闪烁提示即将引爆
@@ -341,8 +342,31 @@ export class Renderer {
 
   _reducedMotion() { return !!(this.settings && this.settings.motion === 'reduced'); }
 
-  // 触屏端虚拟按钮：炸弹（右下）、暂停（左下）、精确慢速（左侧）
-  _drawTouchButtons(g) {
+  // v2.6.2：超载能量集满且本局尚未引爆时，绘制"爆发"释放按钮 + 提示文字。
+  // 按钮位置取屏幕底部正中，避开左下暂停/精确与右下炸弹按钮。
+  _drawOverdriveButton(g) {
+    const ready = g.overdrive >= OVERDRIVE.MAX && !g.overdriveUsed && g.sm.is('playing');
+    if (!ready) return;
+    const ctx = this.ctx;
+    const bx = VIEW.W / 2, by = VIEW.H - 96, r = 26;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
+    ctx.save();
+    ctx.globalAlpha = 0.85 + 0.15 * pulse;
+    ctx.beginPath(); ctx.arc(bx, by, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff5a3c'; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = '#ffd166'; ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('爆发', bx, by + 5);
+    // 提示文字
+    ctx.fillStyle = '#ffd166'; ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('能量已满！点击引爆（或按 L 键）', bx, by - r - 8);
+    ctx.restore();
+  }
+
+  // 触屏端虚拟按钮：炸弹（右下）、暂停（左下）、精确慢速（左侧）。
+  // v2.7：由 main.js 在 game.mobile 时每帧调用（此前仅定义从未渲染，触屏端按钮为"隐形热区"）。
+  drawTouchButtons(g) {
     const ctx = this.ctx;
     const inp = g.input || {};
     const hasBomb = g.player.bombs > 0;
