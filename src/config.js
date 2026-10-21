@@ -65,8 +65,8 @@ export const WEAPONS = [
   { level: 1, name: '单发',       fireRate: 8.0,  dmg: 7, pellets: 1, energyToNext: 100 },
   { level: 2, name: '双列',       fireRate: 8.6,  dmg: 7, pellets: 2, energyToNext: 120 },
   { level: 3, name: '中央重炮+散射', fireRate: 9.2,  dmg: 8, pellets: 3, energyToNext: 150 },
-  { level: 4, name: '交替追踪弹',   fireRate: 9.8,  dmg: 8, pellets: 3, energyToNext: 200 },
-  { level: 5, name: '全弹幕+双追踪', fireRate: 10.5, dmg: 9, pellets: 6, energyToNext: 0   },
+  { level: 4, name: '摇摆弹道',     fireRate: 9.8,  dmg: 8, pellets: 3, energyToNext: 200 },
+  { level: 5, name: '全弹幕+双摇摆', fireRate: 10.5, dmg: 9, pellets: 6, energyToNext: 0   },
 ];
 export const POWER_PER_ITEM = 34; // 单个火力道具能量 (6.6 统一)
 export const MAX_LEVEL = WEAPONS.length;
