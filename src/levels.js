@@ -74,11 +74,12 @@ function pickTypes(regionIndex, count) {
 //       何时停由 Game 按本区击杀数决定（达标即置 done，清屏后拉 Boss）。
 //       maxWaves 为兜底上限，避免玩家一直不还击时关卡永不结束。
 export class WaveDirector {
-  constructor(regionIndex, difficultyKey = 'standard') {
+  // V2.8.0：maxWaves 可显式传入；无尽模式传 Infinity 表示永不收尾、持续续波 (FR-2.2)。
+  constructor(regionIndex, difficultyKey = 'standard', maxWaves = null) {
     this.region = regionIndex;
     this.difficultyKey = difficultyKey;
     this.timeline = buildTimeline(regionIndex, difficultyKey);
-    this.maxWaves = (REGIONS[regionIndex]?.waves ?? 8) * (QUOTA?.MAX_WAVE_MULT ?? 2);
+    this.maxWaves = maxWaves ?? ((REGIONS[regionIndex]?.waves ?? 8) * (QUOTA?.MAX_WAVE_MULT ?? 2));
     this.elapsed = 0;
     this.idx = 0;
     this.spawned = 0;   // 已刷出敌机总数（供调试/统计）
