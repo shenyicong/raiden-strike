@@ -23,9 +23,11 @@ export function bonusRoll(rng = Math.random) {
 // 击破敌机时决定掉落。返回 'power' | 'bomb' | 'shield' | 'life' | null。
 // 重型单位(tank/turret)必掉火力；其余按 BASE_CHANCE + 池内权重，
 // 未命中基础概率时仍按独立爆率掷一次护盾/生命（v2.4）。
-export function rollDrop(enemyType, rng = Math.random) {
+// V2.8.0：baseChance 可由模式覆盖（无尽模式掉落更慷慨，FR-2.4），缺省沿用 DROPS.BASE_CHANCE。
+export function rollDrop(enemyType, rng = Math.random, baseChance = null) {
+  const base = (baseChance == null) ? DROPS.BASE_CHANCE : baseChance;
   if (DROPS.HEAVY_FORCED.includes(enemyType)) return 'power';
-  if (rng() < DROPS.BASE_CHANCE) return weightedPick(rng);
+  if (rng() < base) return weightedPick(rng);
   return bonusRoll(rng);
 }
 
