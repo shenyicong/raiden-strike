@@ -52,24 +52,25 @@ export function spawnPlayerShots(level, x, y, t = 0, dmgMult = 1) {
       break;
     case 3:
       push(0, -12, 0, -SPEED);                       // 中央重炮
-      push(-10, -6, -SPEED * 0.18, -SPEED * 0.98);   // 散射
-      push(10, -6, SPEED * 0.18, -SPEED * 0.98);
+      // v2.7.1：散射改为左右摇摆弹道（净向上 + 正弦横摆），不再向右飞出屏外
+      push(-10, -6, 0, -SPEED * 0.96, { sway: true, swayAmp: 55, swayFreq: 7, swayPhase: -Math.PI / 2 }); // 左摆
+      push(10, -6, 0, -SPEED * 0.96, { sway: true, swayAmp: 55, swayFreq: 7, swayPhase: Math.PI / 2 });   // 右摆（初向右偏，随后回旋）
       break;
     case 4: {
       push(-8, -8, 0, -SPEED);
       push(8, -8, 0, -SPEED);
-      // 交替追踪：按时间奇偶交替左右偏移
-      const side = Math.sin(t * 6) >= 0 ? 1 : -1;
-      push(side * 12, -4, side * SPEED * 0.5, -SPEED * 0.85, { homing: true });
+      // v2.7.1：交替追踪 → 摇摆弹道（净向上 + 正弦横摆，初向右偏后回旋，留在屏内且能命中敌人）
+      push(0, -4, 0, -SPEED * 0.95, { sway: true, swayAmp: 70, swayFreq: 6, swayPhase: 0 });
       break;
     }
     case 5: {
       push(-10, -10, 0, -SPEED);
       push(10, -10, 0, -SPEED);
-      push(-6, -6, -SPEED * 0.3, -SPEED * 0.95);
-      push(6, -6, SPEED * 0.3, -SPEED * 0.95);
-      push(-14, -4, -SPEED * 0.5, -SPEED * 0.85, { homing: true });
-      push(14, -4, SPEED * 0.5, -SPEED * 0.85, { homing: true });
+      push(-6, -6, -SPEED * 0.25, -SPEED * 0.95);
+      push(6, -6, SPEED * 0.25, -SPEED * 0.95);
+      // v2.7.1：双追踪 → 双摇摆弹道（编织前进、不会飞出屏外）
+      push(0, -4, 0, -SPEED * 0.95, { sway: true, swayAmp: 78, swayFreq: 6, swayPhase: Math.PI }); // 左起
+      push(0, -4, 0, -SPEED * 0.95, { sway: true, swayAmp: 78, swayFreq: 6, swayPhase: 0 });       // 右起
       break;
     }
   }
