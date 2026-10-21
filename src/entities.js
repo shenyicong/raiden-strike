@@ -164,14 +164,22 @@ export class Enemy {
 export class Bullet {
   constructor(x, y, vx, vy, opts = {}) {
     this.id = nextId();
-    this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+    this.x = x; this.y = y; this.baseX = x; // 摇摆弹道以发射点为基准左右摆动
+    this.vx = vx; this.vy = vy;
     this.dmg = opts.dmg ?? 1;
     this.r = opts.r ?? 4;
     this.fromPlayer = !!opts.fromPlayer;
     this.homing = !!opts.homing;
+    // 摇摆弹道 (v2.7.1)：净速度仍向上，横向做正弦摆动，留在屏内且能命中上方敌人
+    this.sway = !!opts.sway;
+    this.swayAmp = opts.swayAmp ?? 0;
+    this.swayFreq = opts.swayFreq ?? 6;
+    this.swayPhase = opts.swayPhase ?? 0;
+    this.t = 0;
     this.dead = false;
   }
   update(dt, player) {
+    this.t += dt;
     if (this.homing && player && player.alive) {
       // 简易追踪：轻微转向玩家
       const ang = Math.atan2(player.y - this.y, player.x - this.x);
@@ -179,6 +187,10 @@ export class Bullet {
       const na = cur + clamp(ang - cur, -1.5 * dt, 1.5 * dt);
       const sp = Math.hypot(this.vx, this.vy);
       this.vx = Math.cos(na) * sp; this.vy = Math.sin(na) * sp;
+    }
+    if (this.sway) {
+      // 以 baseX 为中心做正弦摆动；vy 恒定向上，保证最终能打到敌人
+      this.x = this.baseX + Math.sin(this.t * this.swayFreq + this.swayPhase) * this.swayAmp;
     }
     this.x += this.vx * dt;
     this.y += this.vy * dt;
