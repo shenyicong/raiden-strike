@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>擎天战机 V2.7.0 大更新 · 公众号预览</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #f2f3f5;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #1a1a1a;
+    line-height: 1.85;
+    padding: 24px 0;
+  }
+  .page {
+    max-width: 420px;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 6px 30px rgba(0,0,0,.08);
+  }
+  .cover {
+    background: linear-gradient(135deg, #0b1026 0%, #1b2a6b 45%, #2e5bd6 100%);
+    color: #fff;
+    padding: 46px 26px 38px;
+    position: relative;
+  }
+  .cover .tag {
+    display: inline-block;
+    font-size: 12px;
+    letter-spacing: 2px;
+    background: rgba(255,255,255,.16);
+    padding: 4px 12px;
+    border-radius: 20px;
+    margin-bottom: 18px;
+  }
+  .cover h1 {
+    font-size: 25px;
+    line-height: 1.4;
+    font-weight: 800;
+    text-shadow: 0 2px 12px rgba(0,0,0,.35);
+  }
+  .cover .sub {
+    margin-top: 14px;
+    font-size: 13px;
+    opacity: .85;
+  }
+  .body { padding: 26px 24px 34px; }
+  .lead {
+    font-size: 15px;
+    color: #333;
+    background: #f6f8ff;
+    border-left: 4px solid #2e5bd6;
+    padding: 14px 16px;
+    border-radius: 6px;
+    margin-bottom: 22px;
+  }
+  h2 {
+    font-size: 18px;
+    margin: 28px 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2 .em { font-size: 20px; }
+  p { font-size: 15px; color: #2b2b2b; margin: 8px 0; }
+  ul { margin: 8px 0 8px 4px; padding-left: 18px; }
+  li { font-size: 14.5px; margin: 5px 0; color: #333; }
+  .hl { color: #d23b3b; font-weight: 700; }
+  .hl-b { color: #2e5bd6; font-weight: 700; }
+  .quote {
+    background: #fff7f7;
+    border: 1px dashed #f0b4b4;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 14px;
+    color: #7a3b3b;
+    margin: 14px 0;
+  }
+  .cards { display: flex; gap: 10px; margin: 26px 0 8px; }
+  .card {
+    flex: 1;
+    background: linear-gradient(135deg,#1b2a6b,#2e5bd6);
+    color: #fff;
+    border-radius: 10px;
+    padding: 14px 12px;
+    text-align: center;
+    text-decoration: none;
+    font-size: 13px;
+  }
+  .card b { display: block; font-size: 14px; margin-bottom: 4px; }
+  .foot {
+    text-align: center;
+    font-size: 12px;
+    color: #999;
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid #eee;
+  }
+  .divider { text-align:center; color:#bbb; margin: 22px 0; letter-spacing: 6px;}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="cover">
+    <span class="tag">版本更新 · V2.7.0</span>
+    <h1>擎天战机大更新：<br>音乐回来了，Boss 弹幕炸裂，<br>爆发由你说了算</h1>
+    <div class="sub">零依赖 · 零图片 · 零构建 的网页弹幕射击游戏</div>
+  </div>
+
+  <div class="body">
+    <div class="lead">"等等，怎么又没声音了？" —— 这是过去被问得最多的一句话。直到 V2.7.0，我们终于从根因上解决了它。</div>
+
+    <p>今天，擎天战机迎来一次诚意满满的大更新。不只是修 Bug，更是一次体验的重新校准。下面把这版的五个关键变化讲给你听。</p>
+
+    <h2><span class="em">🎵</span> 音乐，这次真的回来了</h2>
+    <p>先说最让人头大的"没音乐"。真正的元凶是<span class="hl">浏览器的自动播放策略</span>：音频上下文必须在用户真实的点击 / 按键手势里<strong>同步</strong>唤醒。一旦走了异步链，浏览器就会判定"非用户触发"而静音。</p>
+    <ul>
+      <li>在玩家<strong>第一次点击 / 按键</strong>时，直接在手势回调里同步 <code>resume</code> 音频；</li>
+      <li>开局不再走异步 <code>.then</code> 链，改成「解锁即播放」。</li>
+    </ul>
+    <p>现在你一进游戏、第一次触摸屏幕，BGM 就会稳稳响起。右上角还加了实时音频徽标：<span class="hl-b">🔊 播放中 / 🔇 已静音 / ⏸ 等待解锁</span>。</p>
+
+    <h2><span class="em">💥</span> 过载爆发：集满不自动炸，你说了算</h2>
+    <p>以前的蓝条一满就自动引爆，经常浪费在最不值当的时刻。V2.7.0 改成更策略向的设计：</p>
+    <ul>
+      <li>蓝条积满后，<span class="hl-b">屏幕底部弹出红色【爆发】按钮</span>（也可按 <code>L</code> 键）；</li>
+      <li><span class="hl">一局仅可释放一次</span>，引爆后蓝条归零、不再积攒；</li>
+      <li>效果：清空全场敌机与敌弹、奖励 <strong>300 分</strong>、<strong>1 秒无敌</strong>；对 Boss 造成一次 <strong>700 点重创</strong>（不会被秒杀）。</li>
+    </ul>
+    <div class="quote">把爆发留给你最危险的时刻——Boss 弹幕最密的那一波，而不是随手放掉。</div>
+
+    <h2><span class="em">👾</span> Boss 七弹道：读招、躲弹、反打</h2>
+    <p>Boss 原本三段式、节奏偏单一。现在拥有<strong>七种弹幕模式</strong>，随机轮换：</p>
+    <p>瞄准弹、环形弹、交叉弹、螺旋弹——以及本版新增的三种：</p>
+    <ul>
+      <li><strong>扇形弹幕（fan）</strong>：一片张开的弹雨，逼你横向走位；</li>
+      <li><strong>弹墙（wall）</strong>：整排压下来的弹幕，考验精确移动；</li>
+      <li><strong>三连爆发（burst）</strong>：短促三连，节奏强、容错低。</li>
+    </ul>
+    <p>每种都有清晰视觉节奏，让你能"读招"。中等密度、可读性优先，既有压迫感又不劝退。</p>
+
+    <h2><span class="em">🎯</span> 爆率重平衡：火力更多，生命更珍</h2>
+    <ul>
+      <li><span class="hl-b">火力道具爆率 0.42 → 0.55</span>：更容易变强，正反馈更密；</li>
+      <li><span class="hl">生命道具爆率 0.06 → 0.025</span>：更稀缺，每个"♥"都值得珍惜。</li>
+    </ul>
+
+    <h2><span class="em">🚀</span> 摇摆弹道：不再飞偏，弹弹到敌</h2>
+    <p>有玩家反馈：高火力等级下，部分子弹会向右偏移，打不到左侧和正上方的敌人。</p>
+    <p>我们把原本会"追自己"的追踪弹逻辑<strong>彻底移除</strong>，改成真正的<strong>摇摆弹道</strong>：子弹沿正弦曲线左右摆动（Lv3 ±55 / Lv4 ±70 / Lv5 ±78 幅度），但<strong>始终向上飞行</strong>。既覆盖更宽正面火力，又保证能命中上方敌人。</p>
+
+    <div class="divider">· · ·</div>
+
+    <h2>🛠 关于这款游戏</h2>
+    <p>擎天战机始终是一款「零依赖、零图片、零构建」的网页游戏：所有机体、弹幕、星空、UI 由 Canvas 实时绘制，所有音效与 BGM 由 WebAudio 实时合成。下载一个 HTML 文件，双击即玩。</p>
+
+    <div class="cards">
+      <a class="card" href="https://shenyicong.github.io/raiden-strike/"><b>🎮 在线试玩</b>点击即玩</a>
+      <a class="card" href="https://github.com/shenyicong/raiden-strike"><b>📦 开源仓库</b>GitHub</a>
+    </div>
+
+    <div class="foot">擎天战机 · RAIDEN STRIKE · V2.7.0<br>如果你玩到了什么手感或 Bug，欢迎在评论区告诉我。</div>
+  </div>
+</div>
+</body>
+</html>
