@@ -1,4 +1,4 @@
-# 擎天战机 RAIDEN STRIKE・游戏逻辑全集（V2.7.0）
+# 擎天战机 RAIDEN STRIKE・游戏逻辑全集（V2.8.0）
 
 > 本文档覆盖 
 >
@@ -18,7 +18,25 @@
 
 ***
 
-## 〇、V2.7.0 调优总览（本次变更）
+## 〇‑0、V2.8.0 变更总览（本次变更）
+
+| FR | 变更 | 主要落点 |
+|---|---|---|
+| FR‑1.1 / 1.2 | 战役击破第 3 区旗舰 → `victory`；生命耗尽 → `gameover` | `game.js: onBossDead / onGameOver`、`statemachine.js`（新增 `region-clear` / `victory`） |
+| FR‑1.3 | Anti‑Deadlock：无敌人 / 无 Boss / 无重整队列持续 `ENDGAME.DEADLOCK_TIMEOUT=5s` → `_breakDeadlock()` 强制推进 | `game.js: update` 空屏计时 + `_breakDeadlock` |
+| FR‑1.4 | 统一结算层：分数、评级 S/A/B/C、击破、最大连击、命中率、用时、本局解锁；「再来一局 / 返回标题 / 切换模式」 | `game.js: finishRun`、`ui.js: end()` |
+| FR‑1.5 | 状态机新增 `region-clear`（区过渡）与 `victory`（战役通关），非法转换静默忽略 | `statemachine.js`（PRD 附录B 流转表） |
+| FR‑2.1 ~ 2.5 | 战役 / 无尽双模式：标题页选择 + 各模式最高分；无尽无限波次每 8 波精英 Boss；`MODES` 独立配置；存档隔离 + 旧档迁移 | `config.js: MODES`、`game.js: modeCfg`、`storage.js: bests / normalizeMode`、`ui.js: _modeCards` |
+| FR‑3.1 ~ 3.6 | 命中闪 + 火花；四层爆炸 + 震屏 + 飘字；连击倍率 `1+0.02×(combo-1)` 封顶 ×2.0；Hitstop 2~4 帧；全套事件音效；`reduced-motion` 降级 | `game.js: spawnKillFx / applyHitstop / registerKill`、`entities.js: Shockwave / FloatText`、`audio.js: sfx` |
+| FR‑4.1 ~ 4.4 | 预渲染多帧 2.5D 战机 Sprite（`drawImage`，零依赖）；敌弹按危险度分色 + 拖尾；设置面板「2.5D 战机」开关可回退 2D 描边 | `sprites.js`、`render.js: dangerColor`、`config.js: ART / PALETTE`、`ui.js: settings()` |
+
+* **修复「命用完却结束不了」**：`Player.update` 在 `respawn` 到期时**无条件**置 `alive = true`，导致 `lives = 0` 的玩家被复活成"幽灵机"，`Game` 的 `!alive && lives <= 0` 判定永不成立。现增加 `lives > 0` 守卫，生命耗尽即稳定进入 `gameover`（FR‑1.2）。
+* **修复「通关结算页按 Enter 无反应」**：`main.js` 的 `onStart` 守卫未包含 `victory` 态，现补齐（FR‑1.1 / 1.4）。
+* 测试：52 项（V2.7 基线）+ 18 项新增（FR‑1.x / 2.x / 3.x / 4.x）= **70 项全绿**（`tests/v28.test.js`）。
+
+***
+
+## 〇、V2.7.0 调优总览（历史变更）
 
 
 
