@@ -308,7 +308,17 @@ export class Renderer {
     ctx.fillStyle = (g.player.ship && g.player.ship.color) || '#7fe7ff';
     ctx.fillText(`SHIP ${g.player.ship ? g.player.ship.name : '雷霆号'}`, 8, 50);
     ctx.fillStyle = '#fff';
-    if (g.muted) { ctx.fillText('🔇', VIEW.W - 24, 30); }
+    // v2.7.0：音频状态徽标（实时反映 AudioContext 状态，便于排查"没音乐"）
+    // 🔊 绿=已解锁播放中 / 🔇 红=静音 / ⏸ 黄=上下文挂起(未解锁) / ✕ 灰=音频不可用
+    let badge = '✕', col = '#9fb0d0';
+    if (g.muted) { badge = '🔇'; col = '#ff6b6b'; }
+    else if (g.audio && g.audio.debug) {
+      const st = g.audio.debug().state;
+      if (st === 'running') { badge = '🔊'; col = '#51cf66'; }
+      else if (st === 'suspended') { badge = '⏸'; col = '#ffd166'; }
+    }
+    ctx.fillStyle = col;
+    ctx.fillText(badge, VIEW.W - 26, 30);
     this._drawOverdriveBar(g);
     this._drawOverdriveButton(g); // v2.6.2 集满后显示"爆发"释放按钮
   }
