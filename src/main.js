@@ -1,5 +1,5 @@
 // main.js — 启动与渲染循环。零构建，ES Module 直接由浏览器加载 (NFR-MAINT-03)。
-import { VIEW } from './config.js';
+import { VIEW, HIT_FEEDBACK } from './config.js';
 import { STATES } from './statemachine.js';
 import { Renderer } from './render.js';
 import { AudioEngine } from './audio.js';
@@ -66,6 +66,8 @@ function boot() {
     onPause: () => { game.pauseToggle(); ui.sync(game.sm.state); },
     onMute: () => { game.muted = !game.muted; audio.setMuted(game.muted); },
     onBomb: () => game.useBomb(), // v2.2：键盘 K/X 与手机炸弹按钮共用
+    onOverdrive: () => game.releaseOverdrive(), // v2.6.2：超载爆发手动释放
+    canOverdrive: () => game.canReleaseOverdrive(), // v2.6.2：能量已满且本局未引爆
     getPlayerPos: () => ({ x: game.player.x, y: game.player.y }), // 拖动跟手用
     onInterrupt: () => { game.interrupt(); ui.sync(game.sm.state); },
     onStart: () => {
@@ -74,6 +76,7 @@ function boot() {
       }
     },
   });
+  input.touchMode = game.mobile; // v2.7：触屏按钮仅触屏设备响应（桌面不绘制也不误触发）
   game.input = input;
   ui.onAction = (a) => {
     if (a.startsWith('ship:')) {  // 选战机：仅已解锁机型可切换 (v2.1)
@@ -120,7 +123,7 @@ function draw() {
   const reduced = game.settings.motion === 'reduced';
   ctx.save();
   if (game.shake > 0 && !reduced) {
-    ctx.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+    ctx.translate((Math.random() - 0.5) * HIT_FEEDBACK.SHAKE_MAX_OFFSET, (Math.random() - 0.5) * HIT_FEEDBACK.SHAKE_MAX_OFFSET); // v2.7 震屏幅度入 config
   }
   renderer.drawBackground(game.regionIndex, reduced);
   for (const e of game.enemies) renderer.drawEnemy(e);
@@ -131,6 +134,8 @@ function draw() {
   for (const d of game.drops) renderer.drawDrop(d);
   renderer.drawPlayer(game.player, game.settings, game.t);
   renderer.drawHUD(game);
+  // v2.7：触屏端每帧绘制虚拟按钮（此前按钮从未渲染，只在热区"隐形响应"）
+  if (game.mobile) renderer.drawTouchButtons(game);
   renderer.drawFlash();
   ctx.restore();
   // aria-live 状态同步（去抖：仅在变化时）
@@ -147,7 +152,8 @@ function updateDiag() {
   }
   const samples = game.fpsSamples;
   const mean = samples.length ? samples.reduce((a, b) => a + b, 0) / samples.length : 0;
-  const p99 = samples.length ? Math.max(...samples) : 0;
+  // v2.7：真正的 99 分位（此前取的是 max，标签名不副实）
+  const p99 = samples.length ? samples.slice().sort((a, b) => a - b)[Math.floor(samples.length * 0.99)] : 0;
   const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) + 'MB' : 'n/a';
   diagEl.textContent = `FPS均值 ${mean.toFixed(1)} | P99 ${p99.toFixed(1)} | 堆 ${heap} | 敌弹 ${game.eBullets.length} | 粒子 ${game.particles.length}`;
 }
