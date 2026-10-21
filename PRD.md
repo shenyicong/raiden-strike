@@ -1,4 +1,4 @@
-# 雷霆战机 RAIDEN STRIKE · 产品需求文档（PRD）
+# 擎天战机 RAIDEN STRIKE · 产品需求文档（PRD）
 
 > **文档版本**：V2.7.0（与构建版本统一）
 > **实构建版本**：源码 `config.js` / `package.json` 当前均标记 `2.7.0`，文档与产物已同步
@@ -12,7 +12,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 产品名称 | 雷霆战机 RAIDEN STRIKE |
+| 产品名称 | 擎天战机 RAIDEN STRIKE |
 | 品类 | 纵向卷轴弹幕射击（Vertical Scrolling Shoot-'em-up, STG） |
 | 平台 | 纯前端（HTML5 Canvas2D + WebAudio），零依赖、零运行时构建 |
 | 交付形态 | 单文件 `raiden-strike.html`（双击即玩） |
@@ -40,7 +40,7 @@
 
 ### 1.4 竞品对比矩阵
 
-| 维度 | 雷霆战机 RS | 东方 Project | 怒首领蜂 | 斑鸠 Ikaruga | Sky Force Reloaded | 雷霆战机(移动版) |
+| 维度 | 擎天战机 RS | 东方 Project | 怒首领蜂 | 斑鸠 Ikaruga | Sky Force Reloaded | 雷霆战机(移动版) |
 |---|---|---|---|---|---|---|
 | 视角 | 纵向 | 纵向 | 纵向 | 纵向 | 纵向(斜) | 纵向 |
 | 判定点 | 9px（精确 6px 机型） | 极小(2~4px) | 小 | 小 | 中 | 中 |
