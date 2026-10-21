@@ -94,7 +94,10 @@ export class UI {
   sync(state) {
     let target;
     if (state === 'ready') target = 'title';
-    else if (state === 'paused') target = 'pause';
+    // v2.7：暂停态下若正停留在设置面板，sync 必须保持设置视图不被覆盖。
+    // 此前 settings() 手动置 view='settings'，但主循环每帧 sync('paused') 会把 target 解析为
+    // 'pause' 并重建暂停菜单，导致设置面板打开一帧就被顶掉（"设置点不开"）。
+    else if (state === 'paused') target = (this.view === 'settings') ? 'settings' : 'pause';
     else if (state === 'gameover') target = 'end';
     else if (state === 'win') target = 'win';
     else target = 'hidden';
