@@ -1,4 +1,4 @@
-# 雷霆战机 RAIDEN STRIKE・游戏逻辑全集（V2.7.0）
+# 擎天战机 RAIDEN STRIKE・游戏逻辑全集（V2.7.0）
 
 > 本文档覆盖 
 >
