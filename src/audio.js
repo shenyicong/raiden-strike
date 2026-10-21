@@ -132,8 +132,9 @@ export class AudioEngine {
     o.start(t); o.stop(t + dur + 0.02);
   }
 
-  // 打击乐：白噪声经高通滤波做 hi-hat / 军鼓（零素材，纯合成）
-  _perc(at, dur = 0.05, gain = 0.10, freq = 7000) {
+  // 白噪声源：filterType 决定音色（highpass=踩镲/火花，lowpass=爆炸闷响）。
+  // bus 决定走音效总线还是音乐总线（V2.8.0：打击感音效必须走 sfx，不再占用音乐总线）。
+  _noise(at, dur = 0.05, gain = 0.10, filterType = 'highpass', freq = 7000, bus = 'sfx') {
     // 音频能力缺失/异常时静默降级，绝不打断游戏 (NFR-REL-03 / R-01)
     if (!this.ctx) return;
     if (this.ctx.state !== 'running') { this.ctx.resume?.().catch(() => {}); return; }
@@ -146,16 +147,25 @@ export class AudioEngine {
       this._noiseBuf = buf;
     }
     const src = this.ctx.createBufferSource(); src.buffer = this._noiseBuf;
-    const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = freq;
+    const f = this.ctx.createBiquadFilter(); f.type = filterType; f.frequency.value = freq;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(gain, at);
     g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    src.connect(hp); hp.connect(g); g.connect(this.buses.music);
+    src.connect(f); f.connect(g); g.connect(this.buses[bus]);
     src.start(at); src.stop(at + dur + 0.02);
   }
 
-  // 六类音效 (FR-PRS-03)。v2.7.0：单音增益整体上调（此前受 busGains 双重对数衰减影响，音效也几不可闻）。
-  sfx(name) {
+  // 打击乐：hi-hat / 军鼓（走音乐总线）
+  _perc(at, dur = 0.05, gain = 0.10, freq = 7000) {
+    this._noise(at, dur, gain, 'highpass', freq, 'music');
+  }
+
+  // 音效 (FR-PRS-03)。v2.7.0：单音增益整体上调（此前受 busGains 双重对数衰减影响，音效也几不可闻）。
+  // V2.8.0 扩充事件音效库 (FR-3.5)：命中 / 击破（分机型变体）/ 玩家受击 / 护盾破碎 /
+  //                                Boss 出场 / Boss 阶段切换 / Boss 死亡。
+  // 第二参数 combo 用于「命中音高随连击微升」，给连击一个听觉爬升反馈 (FR-3.1)。
+  sfx(name, combo = 0) {
+    const at = this.ctx ? this.ctx.currentTime : null;
     switch (name) {
       case 'shoot':    this._blip(880, 0.06, 'square', 'sfx', 0.22); break;
       case 'explosion':this._blip(120, 0.25, 'sawtooth', 'sfx', 0.45); break;
@@ -165,6 +175,53 @@ export class AudioEngine {
       // v2.6 超载爆发：低频轰鸣 + 高频扫尾
       case 'overdrive':this._blip(150, 0.38, 'sawtooth', 'sfx', 0.45); this._blip(920, 0.22, 'square', 'sfx', 0.3); break;
       case 'win':      this._blip(523, 0.2, 'triangle', 'music', 0.35); this._blip(784, 0.3, 'triangle', 'music', 0.35); break;
+
+      // ── V2.8.0 打击感音效 ──
+      // 命中：短促高频点击；音高随连击每级 +12 音分，封顶 +24 半音，形成爬升感
+      case 'hit': {
+        const cents = Math.min(24 * 100, (combo || 0) * 12);
+        const f = 1180 * Math.pow(2, cents / 1200);
+        this._blip(f, 0.045, 'square', 'sfx', 0.15);
+        this._noise(at, 0.03, 0.06, 'highpass', 6000, 'sfx');
+        break;
+      }
+      // 击破：噪声爆发（火花）+ 低频 thump（闷响）
+      case 'kill':
+        this._noise(at, 0.16, 0.20, 'lowpass', 1800, 'sfx');
+        this._blip(150, 0.14, 'sine', 'sfx', 0.30);
+        break;
+      // 重型击破：更低更长，重量感更强
+      case 'killHeavy':
+        this._noise(at, 0.28, 0.26, 'lowpass', 1100, 'sfx');
+        this._blip(96, 0.26, 'sine', 'sfx', 0.38);
+        this._blip(58, 0.32, 'sawtooth', 'sfx', 0.22);
+        break;
+      // 玩家受击：下行双音，明确"吃亏了"
+      case 'playerHit':
+        this._blip(320, 0.12, 'sawtooth', 'sfx', 0.34);
+        this._blip(160, 0.22, 'square', 'sfx', 0.28);
+        break;
+      // 护盾破碎：金属感高频短噪
+      case 'shieldBreak':
+        this._noise(at, 0.10, 0.16, 'highpass', 4200, 'sfx');
+        this._blip(1400, 0.07, 'triangle', 'sfx', 0.18);
+        break;
+      // Boss 出场：低频压迫长音
+      case 'bossSpawn':
+        this._blip(70, 0.55, 'sawtooth', 'sfx', 0.34);
+        this._blip(105, 0.45, 'square', 'sfx', 0.22);
+        break;
+      // Boss 阶段切换：警报式上行
+      case 'bossPhase':
+        this._blip(420, 0.10, 'square', 'sfx', 0.26);
+        this._blip(560, 0.12, 'square', 'sfx', 0.24);
+        break;
+      // Boss 死亡：下沉长轰鸣 + 爆裂噪声
+      case 'bossDie':
+        this._noise(at, 0.5, 0.30, 'lowpass', 900, 'sfx');
+        this._blip(180, 0.7, 'sawtooth', 'sfx', 0.36);
+        this._blip(90, 0.9, 'sine', 'sfx', 0.30);
+        break;
     }
   }
 
