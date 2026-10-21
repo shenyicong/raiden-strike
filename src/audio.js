@@ -78,11 +78,12 @@ export class AudioEngine {
     this.buses.sfx.connect(this.buses.master);
     this.buses.music.connect(this.buses.master);
     this.buses.master.connect(this.ctx.destination);
-    this.applyGains({ master: 70, sfx: 70, music: 50 });
+    this.applyGains({ master: 70, sfx: 70, music: 85 }); // v2.6.2 默认音乐音量调高（修复"没音乐"）
   }
 
   applyGains(vol) {
     if (!this.buses) return;
+    this._volume = vol; // 缓存，供 setMuted 取消静音时恢复
     const g = busGains({ volume: vol });
     const t = this.ctx.currentTime;
     this.buses.master.gain.setTargetAtTime(g.master, t, 0.01);
@@ -104,7 +105,13 @@ export class AudioEngine {
 
   // 静音快捷键 M 与总线联动 (FR-SYS-05)。
   setMuted(muted) {
-    if (this.buses) this.buses.master.gain.value = muted ? 0 : 1;
+    if (!this.buses) return;
+    // 取消静音时恢复到 applyGains 计算的真实主增益，而不是硬编码 1（避免取消静音后骤然过响）
+    if (muted) {
+      this.buses.master.gain.value = 0;
+    } else {
+      this.applyGains(this._volume || { master: 70, sfx: 70, music: 85 });
+    }
   }
 
   _blip(freq, dur, type = 'square', bus = 'sfx', gain = 0.3, at = null) {
@@ -169,12 +176,20 @@ export class AudioEngine {
     this.step = 0; // 换曲即从小节头开始
   }
 
-  startMusic(region = 0) {
+  // 启动 BGM。v2.7：第二参数 boss 决定恢复/启动时使用 Boss 紧张版还是关卡主题，
+  // 修复"Boss 战中暂停再恢复，音乐从紧张版错误切回关卡主题"的问题。
+  startMusic(region = 0, boss = false) {
     if (!this.ctx || this.musicTimer) return;
-    this.setTrack(region);
+    this.setTrack(region, boss);
     this._nextNoteTime = this.ctx.currentTime + 0.08;
     const tick = () => {
-      if (!this.ctx || this.ctx.state !== 'running') return;
+      if (!this.ctx) return;
+      // v2.6.2：上下文被挂起（自动播放策略 / 切后台）时持续尝试恢复，恢复成功后自然开始放乐，
+      // 不再因"首帧未 running"而彻底沉默（此前表现为"没音乐"）。
+      if (this.ctx.state !== 'running') {
+        this.ctx.resume().catch(() => {});
+        return;
+      }
       try {
         const stepDur = 30 / (this.track?.bpm || 120); // 8 分音符时长 (秒)
         // 提前 0.2s 排好音符，期间定时器抖动不会传到听感上
@@ -194,14 +209,17 @@ export class AudioEngine {
     if (!t) return;
     const i = step % t.bass.length;
     const midi = (m) => 440 * Math.pow(2, (m - 69) / 12);
+    // v2.6.2：合成器单音音量整体上调（原 0.16/0.10/0.07/0.055/0.28），
+    // 此前即便音乐总线正常，单音也极弱（≈-34dB）几乎听不见。
     const bass = t.bass[i];
-    if (bass != null) this._blip(midi(bass), stepDur * 0.85, t.bassType || 'square', 'music', 0.16, at);
+    if (bass != null) this._blip(midi(bass), stepDur * 0.85, t.bassType || 'square', 'music', 0.42, at);
     const arp = t.arp[i];
-    if (arp != null) this._blip(midi(arp), stepDur * 0.55, 'triangle', 'music', 0.10, at);
+    if (arp != null) this._blip(midi(arp), stepDur * 0.55, 'triangle', 'music', 0.22, at);
     const lead = t.lead[step % t.lead.length];
-    if (lead != null) this._blip(midi(lead), stepDur * 1.4, 'sawtooth', 'music', 0.07, at);
-    if (t.hat[i]) this._perc(at, 0.04, 0.055, 8000);
-    if (t.kick && t.kick[i]) this._blip(midi(24), 0.16, 'sine', 'music', 0.28, at);
+    if (lead != null) this._blip(midi(lead), stepDur * 1.4, 'sawtooth', 'music', 0.16, at);
+    if (t.hat[i]) this._perc(at, 0.04, 0.12, 8000);
+    // v2.7：底鼓音高 midi(24)=32.7Hz（多数扬声器几乎不可闻）→ midi(36)=65.4Hz，鼓点清晰可辨
+    if (t.kick && t.kick[i]) this._blip(midi(36), 0.16, 'sine', 'music', 0.55, at);
   }
 
   stopMusic() {
