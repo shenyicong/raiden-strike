@@ -9,11 +9,8 @@ export function killScore(type) {
 // 敌弹中心距判定点 9px 内为命中；9–21px 内为擦弹 (FR-CBT-07)。
 export function classifyHit(distance) {
   if (distance <= PLAYER.HIT_RADIUS) return 'hit';
-  if (distance <= GRAZE_OUTER()) return 'graze';
+  if (distance <= GLOBAL.GRAZE_OUTER) return 'graze';
   return 'none';
-}
-function GRAZE_OUTER() {
-  return GLOBAL.GRAZE_INNER + (GLOBAL.GRAZE_OUTER - GLOBAL.GRAZE_INNER); // 21
 }
 
 // 擦弹管理：同颗子弹仅计一次。
