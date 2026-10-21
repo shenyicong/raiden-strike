@@ -2,6 +2,7 @@
 // 所有 localStorage 访问唯一入口；后端可注入以便 Node 测试 (FR-SAV-02 降级)。
 import {
   STORAGE_KEY, STORAGE_SCHEMA_VERSION, STORAGE_MAX_BYTES, DIFFICULTY, SHIPS,
+  DEFAULT_MODE, MODE_IDS,
 } from './config.js';
 
 // 首次运行默认值 (FR-SYS-07)。系统 prefers-reduced-motion 时 motion='reduced' 由调用方覆盖。
@@ -13,6 +14,8 @@ export function defaultSettings(prefersReducedMotion = false) {
     difficulty: 'standard',
     tutorialSeen: false,
     ship: 'raiden',     // 当前选择战机 (v2.1)
+    mode: DEFAULT_MODE, // V2.8.0 上次选择的模式（标题页记忆，FR-2.3）
+    sprite3d: true,     // V2.8.0 预渲染 2.5D 战机开关；关闭则回退 2D 描边（FR-4.4）
   };
 }
 
@@ -21,10 +24,22 @@ export function emptyData() {
   return {
     schema_version: STORAGE_SCHEMA_VERSION,
     best: null,
+    // V2.8.0：战役与无尽的最高分分键存储，互不覆盖（FR-2.5）
+    bests: emptyBests(),
     top5: [],
     settings: defaultSettings(),
     unlocked: defaultUnlocked(), // 已解锁战机 id (v2.1)
   };
+}
+
+// 分模式最佳成绩容器
+export function emptyBests() {
+  return MODE_IDS.reduce((acc, id) => { acc[id] = null; return acc; }, {});
+}
+
+// 归一化模式 id：未知值一律回退到战役，避免脏存档导致 undefined 键
+export function normalizeMode(mode) {
+  return MODE_IDS.includes(mode) ? mode : DEFAULT_MODE;
 }
 
 // 初始解锁：unlock.type === 'default' 的机型。
@@ -44,8 +59,15 @@ export function load(backend, prefersReducedMotion = false) {
     // 补齐缺失字段，避免旧结构缺键导致后续 undefined
     const merged = emptyData();
     merged.best = data.best ?? null;
+    // V2.8.0 旧存档兼容迁移：历史单键 best 视为战役成绩，无尽为空（FR-2.5）
+    const oldBests = (data.bests && typeof data.bests === 'object') ? data.bests : {};
+    merged.bests = MODE_IDS.reduce((acc, id) => {
+      acc[id] = oldBests[id] ?? ((id === DEFAULT_MODE && data.best) ? data.best : null);
+      return acc;
+    }, emptyBests());
     merged.top5 = Array.isArray(data.top5) ? data.top5 : [];
     merged.settings = { ...merged.settings, ...(data.settings || {}) };
+    merged.settings.mode = normalizeMode(merged.settings.mode);
     const un = defaultUnlocked();
     merged.unlocked = Array.isArray(data.unlocked)
       ? Array.from(new Set(un.concat(data.unlocked.filter((id) => SHIPS.some((s) => s.id === id)))))
@@ -78,19 +100,31 @@ export function clearAll(backend, prefersReducedMotion = false) {
 }
 
 // 记录一局结果：更新最高分与前五榜 (FR-SAV-01/03)。
-// run = { score, difficulty, date:'YYYY-MM-DD', duration, region }
+// run = { score, difficulty, date:'YYYY-MM-DD', duration, region, mode? }
+// V2.8.0：按 mode 写入隔离的 bests[mode]，战役无尽互不覆盖（FR-2.5）。
 export function recordRun(data, run) {
+  const mode = normalizeMode(run?.mode);
+  const bests = { ...emptyBests(), ...(data.bests || {}) };
+  const record = { score: run.score, difficulty: run.difficulty, date: run.date, grade: run.grade ?? null };
+  if (!bests[mode] || run.score > bests[mode].score) bests[mode] = record;
   // unlocked 需随局推进一并保留 (v2.1)
   const next = {
     ...data,
     top5: keepTop5(data.top5, run),
     settings: data.settings,
     unlocked: data.unlocked || defaultUnlocked(),
+    bests,
+    // best 保持为战役成绩，兼容 V2.7 及更早的读取方（标题页历史最高）
+    best: mode === DEFAULT_MODE ? (bests[DEFAULT_MODE] || data.best || null) : (data.best || null),
   };
-  if (!next.best || run.score > next.best.score) {
-    next.best = { score: run.score, difficulty: run.difficulty, date: run.date };
-  }
   return next;
+}
+
+// 读取某模式的历史最佳（FR-2.3 标题页展示各模式最高分）
+export function bestOf(data, mode) {
+  const m = normalizeMode(mode);
+  const b = (data && data.bests) ? data.bests[m] : null;
+  return b || null;
 }
 
 // 保留最近 5 局；超出丢弃最早一条（按日期降序）；同分按用时升序仅影响排序展示，不在此强约束。
