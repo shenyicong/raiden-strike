@@ -9,7 +9,7 @@ import { rollDrop, expectedPowerItems, expectedPowerEnergy } from '../src/drops.
 import { getPhase, computePhaseTimes, phasesMeetMinTime } from '../src/boss.js';
 import { load, save, recordRun, clearAll, emptyData, defaultSettings, keepTop5, defaultUnlocked } from '../src/storage.js';
 import { sliderToGain, busGains, motionFlags, hitboxVisible } from '../src/settings.js';
-import { SHIPS } from '../src/config.js';
+import { SHIPS, WEAPONS } from '../src/config.js';
 import { shipById, isUnlocked, gradeUnlocks, unlockText } from '../src/ships.js';
 
 // 内存后端（模拟 localStorage，注入以便测试 FR-SAV-02 降级）
@@ -83,12 +83,13 @@ test('掉落：重型单位必掉火力；随机按权重', () => {
   assert.equal(rollDrop('scout', () => 0.99), null);
   // 基础概率内(0.0) 且权重段 <0.55 -> power
   assert.equal(rollDrop('scout', seq([0.0, 0.0])), 'power');
-  assert.equal(rollDrop('scout', seq([0.0, 0.5])), 'bomb');   // 0.42–0.60
-  assert.equal(rollDrop('scout', seq([0.0, 0.7])), 'shield'); // 0.60–0.82
-  assert.equal(rollDrop('scout', seq([0.0, 0.9])), 'life');   // >0.82
-  // v2.4：权重池加入生命后，首区期望火力道具 7.03、能量 239（同一推导口径重算）
-  assert.ok(Math.abs(expectedPowerItems(48, 3) - 7.03) < 0.01);
-  assert.ok(Math.abs(expectedPowerEnergy(48, 3) - 239.1) < 0.5);
+  assert.equal(rollDrop('scout', seq([0.0, 0.5])), 'power');  // <0.55
+  assert.equal(rollDrop('scout', seq([0.0, 0.7])), 'bomb');   // 0.55–0.72
+  assert.equal(rollDrop('scout', seq([0.0, 0.9])), 'shield'); // 0.72–0.92
+  assert.equal(rollDrop('scout', seq([0.0, 0.97])), 'life');   // >0.92
+  // v2.6.2：火力权重上调至 0.55、生命下调至 0.08 后，首区期望火力道具 8.28、能量 281.5（同一推导口径重算）
+  assert.ok(Math.abs(expectedPowerItems(48, 3) - 8.28) < 0.01);
+  assert.ok(Math.abs(expectedPowerEnergy(48, 3) - 281.52) < 0.5);
 });
 
 // ── TC-ENM-01 Boss 三阶段阈值 + 每阶段 ≥6 秒 ──
@@ -149,7 +150,14 @@ test('设置：三路音量对数映射到增益；0 即静音', () => {
   assert.equal(sliderToGain(100), 1);
   const g = busGains({ volume: { master: 70, sfx: 70, music: 50 } });
   assert.ok(g.master > 0 && g.master < 1);
-  assert.ok(g.music < g.sfx); // music 总线更低
+  assert.ok(g.sfx > 0);
+  // v2.6.2：音乐总线经 2.6× 增益后具备可听响度（不再≈0.004）；music 滑块 50 即应明显大于旧值
+  assert.ok(g.music > 0.05, `music 总线应有可听响度，实际 ${g.music}`);
+  // master=0 时三路皆静音（音乐随主音量联动）
+  const m = busGains({ volume: { master: 0, sfx: 70, music: 90 } });
+  assert.equal(m.master, 0);
+  assert.equal(m.sfx, 0);
+  assert.equal(m.music, 0);
 });
 test('设置：减弱档关闭震动/白闪、粒子减半、星空2层', () => {
   const f = motionFlags({ motion: 'standard' });
@@ -165,10 +173,17 @@ test('设置：判定点默认显示，可关闭', () => {
   assert.equal(hitboxVisible({ hitboxDot: false }), false);
 });
 
-// ── 数值自洽：理论 DPS 随等级提升（6.3 跨度约 6.75 倍）──
-test('平衡：Lv.1→Lv.5 理论 DPS 约 6.75 倍', () => {
+// ── 数值自洽：理论 DPS 随等级提升（v2.7 修正 pellets 后 Lv.1→Lv.5 约 10.1 倍）──
+test('平衡：Lv.1→Lv.5 理论 DPS 约 10.1 倍（v2.7 弹道数修正后）', () => {
   const ratio = theoreticalDps(5) / theoreticalDps(1);
-  assert.ok(Math.abs(ratio - 6.75) < 0.05, `ratio=${ratio.toFixed(2)}`);
+  assert.ok(Math.abs(ratio - 10.125) < 0.05, `ratio=${ratio.toFixed(2)}`);
+});
+
+// ── v2.7 数据自洽：config.pellets 必须与实际弹道数一致（此前 Lv.4/Lv.5 标称失真）──
+test('平衡：config pellets 与 spawnPlayerShots 实发弹数一致', () => {
+  for (const w of WEAPONS) {
+    assert.equal(spawnPlayerShots(w.level, 0, 0).length, w.pellets, `Lv.${w.level} 实发弹数应等于 pellets 配置`);
+  }
 });
 
 // ── v2.1 战机与解锁 ──
