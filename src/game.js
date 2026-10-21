@@ -39,6 +39,8 @@ export class Game {
     this.toast = null; // 短提示（解锁/收集）文本 + 倒计时
     this.runTime = 0;  // v2.4 本局存活时间（难度递进用）
     this.overdrive = 0; // v2.6 超载能量（0 ~ OVERDRIVE.MAX）
+    this.overdriveUsed = false;   // v2.6.2：本局是否已引爆（一局仅一次）
+    this._overdriveNotified = false; // v2.6.2：是否已提示"能量已满"
     this.regionKills = 0; // v2.6 本区已清理敌机数（达标出 Boss）
     this.rally = [];    // v2.5 待重整的漏网敌机队列
     this.shipId = shipById(this.settings.ship).id; // 归一：未知/缺失回退到雷霆号
@@ -64,6 +66,8 @@ export class Game {
     this.runTime = 0; // v2.4 难度递进计时归零
     this.rally = [];  // v2.5 重整队列清空
     this.overdrive = 0; // v2.6 超载能量清零
+    this.overdriveUsed = false;   // v2.6.2：本局引爆标记重置
+    this._overdriveNotified = false; // v2.6.2：满能提示重置
     this.regionKills = 0; // v2.6 本区清理计数清零
     // 结束态不能直连 playing（状态机合法转换：gameover/win -> ready -> playing）。
     // 少了这一步，"再来一局"点了会静默失败：状态仍是 gameover，结算面板一直盖着。
@@ -76,7 +80,7 @@ export class Game {
 
   pauseToggle() {
     if (this.sm.is(STATES.PLAYING)) { this.sm.pause(); this.audio.stopMusic(); } // v2.6.1 暂停即停乐
-    else if (this.sm.is(STATES.PAUSED)) { this.sm.resume(); this.audio.startMusic(this.regionIndex); }
+    else if (this.sm.is(STATES.PAUSED)) { this.sm.resume(); this.audio.startMusic(this.regionIndex, !!this.boss); } // v2.7：恢复时按当前 Boss 状态切回正确曲目
   }
   interrupt() { if (this.sm.is(STATES.PLAYING)) this.sm.pause(); }
 
@@ -170,10 +174,10 @@ export class Game {
       performance.mark?.('boss_enter');
     }
 
-    // 敌机更新 + 开火
+    // 敌机更新 + 开火（v2.7：传入玩家位置，自爆机据此追踪俯冲）
     for (const e of this.enemies) {
-      const fire = e.update(dt, this.difficulty);
-      if (fire && this.boss === null) this.spawnEnemyBullet(e.x, e.y, this._aimAngle(e), 150 * this.difficulty.bulletSpeedMult * this.rampScale().speedMult, 4, false); // v2.3 弹速下调 + v2.4 随时间回升
+      const fire = e.update(dt, this.difficulty, this.player);
+      if (fire && this.boss === null) this.spawnEnemyBullet(e.x, e.y, this._aimAngle(e), GLOBAL.ENEMY_BULLET_SPEED * this.difficulty.bulletSpeedMult * this.rampScale().speedMult, 4, false); // v2.3 弹速下调 + v2.4 随时间回升
     }
     // v2.5 漏网敌机：飞出下缘且未击破 -> 离场并进入重整队列（不再无限堆积在屏幕下方）
     for (const e of this.enemies) {
@@ -205,8 +209,9 @@ export class Game {
     // 碰撞
     this.collide();
 
-    // v2.6 超载爆发：蓝条集满即自动引爆（放在碰撞之后统一结算，避免遍历中改动数组）
-    if (OVERDRIVE.AUTO && this.overdrive >= OVERDRIVE.MAX) this._triggerOverdrive();
+    // v2.6.2 超载爆发：AUTO 已关闭，集满后不再自动引爆，改由玩家手动释放（按钮 / L 键）。
+    // 仅保留自动分支作为兜底（极少用），且本局已引爆过则永不再次触发。
+    if (OVERDRIVE.AUTO && !this.overdriveUsed && this.overdrive >= OVERDRIVE.MAX) this._triggerOverdrive();
 
     // 道具吸附 (FR-CBT-05)。v2.6：未被吸附时按「初速 + 加速度 → 顶速」自动下落，不再停在原地。
     for (const d of this.drops) {
@@ -274,7 +279,7 @@ export class Game {
   fireBossPattern() {
     const b = this.boss;
     const pat = patternForPhase(b.phase, b.patternIndex);
-    const speed = 132 * BOSS.PHASE_SPEED_MULT[b.phase] * this.difficulty.bulletSpeedMult; // v2.3 弹速下调 + v2.6.1 回调
+    const speed = BOSS.BULLET_SPEED * BOSS.PHASE_SPEED_MULT[b.phase] * this.difficulty.bulletSpeedMult; // v2.3 弹速下调 + v2.6.1 回调（v2.7 基础速度入 config）
     const bd = ENEMY_DAMAGE.BOSS;
     if (pat === 'aimed') {
       const a = Math.atan2(this.player.y - b.y, this.player.x - b.x);
@@ -291,6 +296,28 @@ export class Game {
       const a = (b.patternIndex * 0.5) % (Math.PI * 2);
       const k = BOSS.SPIRAL_COUNT || 3; // v2.6.1 螺旋弹加密
       for (let i = 0; i < k; i++) this.spawnEnemyBullet(b.x, b.y, a + i * (Math.PI * 2 / k), speed, 5, false, bd);
+    }
+    // v2.6.2 新增三种弹道，丰富 Boss 攻击层次：
+    else if (pat === 'fan') {
+      // 扇形散射：以瞄准角为中心展开 7 发弧线弹
+      const a = Math.atan2(this.player.y - b.y, this.player.x - b.x);
+      const n = 7, spread = 0.9;
+      for (let i = 0; i < n; i++) {
+        const ang = a - spread / 2 + spread * (i / (n - 1));
+        this.spawnEnemyBullet(b.x, b.y, ang, speed * 0.85, 5, false, bd);
+      }
+    } else if (pat === 'wall') {
+      // 弹墙：横向一排向下弹，随机留一个缺口供玩家穿越
+      const gapX = 40 + Math.random() * (VIEW.W - 80);
+      const gapW = 64;
+      for (let x = 22; x < VIEW.W - 10; x += 34) {
+        if (Math.abs(x - gapX) < gapW / 2) continue;
+        this.spawnEnemyBullet(x, b.y, Math.PI / 2, speed * 0.72, 5, false, bd);
+      }
+    } else if (pat === 'burst') {
+      // 三连瞄准爆发：正前方及左右各一发，压迫躲避空间
+      const a = Math.atan2(this.player.y - b.y, this.player.x - b.x);
+      for (let k = -1; k <= 1; k++) this.spawnEnemyBullet(b.x, b.y, a + k * 0.18, speed * 1.1, 5, false, bd);
     }
   }
 
@@ -309,7 +336,7 @@ export class Game {
         }
       }
       if (!b.dead && this.boss && !this.boss.entering) {
-        if (Math.hypot(b.x - this.boss.x, b.y - this.boss.y) <= 40 + b.r) {
+        if (Math.hypot(b.x - this.boss.x, b.y - this.boss.y) <= BOSS.HIT_RADIUS + b.r) { // v2.7 命中半径入 config
           this.boss.hp -= b.dmg; b.dead = true;
           this.addOverdrive(b.dmg * OVERDRIVE.PER_DMG); // v2.6 打 Boss 同样积攒
         }
@@ -331,14 +358,34 @@ export class Game {
   get regionQuota() { return REGIONS[this.regionIndex]?.quota ?? 20; }
 
   // v2.6 积攒超载能量。来源：造成伤害 / 击破 / 擦弹。上限 OVERDRIVE.MAX。
+  // v2.6.2：本局已引爆过则不再积攒（蓝条保持归零，"一局仅一次"）。
   addOverdrive(amount) {
-    if (!(amount > 0)) return;
+    if (!(amount > 0) || this.overdriveUsed) return;
     this.overdrive = Math.min(OVERDRIVE.MAX, this.overdrive + amount);
+    // 首次集满：给出"可释放"提示（按钮由渲染层绘制）
+    if (!this._overdriveNotified && this.overdrive >= OVERDRIVE.MAX) {
+      this._overdriveNotified = true;
+      this.say('超载能量已满！点击[爆发]按钮或按 L 键引爆', 3.0);
+    }
   }
 
-  // v2.6 蓝条集满自动引爆：清空当前屏幕所有敌机（Boss 改为重创）+ 清敌弹 + 短暂无敌。
+  // v2.6.2：玩家手动释放超载爆发（按钮 / L 键）。仅在本局未引爆且能量已满时可触发。
+  releaseOverdrive() {
+    if (this.sm.is(STATES.PLAYING) && !this.overdriveUsed && this.overdrive >= OVERDRIVE.MAX) {
+      this._triggerOverdrive();
+    }
+  }
+  // 供输入层判断"爆发按钮当前是否可点"
+  canReleaseOverdrive() {
+    return this.sm.is(STATES.PLAYING) && !this.overdriveUsed && this.overdrive >= OVERDRIVE.MAX;
+  }
+
+  // v2.6 蓝条集满引爆：清空当前屏幕所有敌机（Boss 改为重创）+ 清敌弹 + 短暂无敌。
   // 清屏击破只计分与特效，不掉落道具，避免一次爆发塞满屏幕。
+  // v2.6.2：引爆后置 overdriveUsed=true 并清零蓝条，本局不再积攒 / 不再可触发（一局仅一次）。
   _triggerOverdrive() {
+    if (this.overdriveUsed) return; // 兜底：已引爆则不重复
+    this.overdriveUsed = true;
     this.overdrive = 0; // 先清零，防止同帧重复触发
     const cleared = this.enemies.filter((e) => !e.dead);
     for (const e of cleared) {
@@ -412,6 +459,9 @@ export class Game {
   onBossDead() {
     this.score += SCORE.BOSS_KILL;
     this.spawnExplosion(this.boss.x, this.boss.y, 60);
+    this.spawnExplosion(this.boss.x, this.boss.y, 90); // v2.7：Boss 击破追加一圈大爆炸
+    this.flash = Math.max(this.flash, 0.45); // v2.7：Boss 击破白闪
+    this.shake = Math.max(this.shake, 0.5);  // v2.7：Boss 击破震屏
     this.boss = null;
     this.score += SCORE.REGION_CLEAR;
     if (this.regionIndex >= REGIONS.length - 1) {
