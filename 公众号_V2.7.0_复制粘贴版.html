@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>擎天战机 V2.7.0 更新（内联样式·复制粘贴版）</title>
+</head>
+<body style="background:#ffffff;color:#3e3e3e;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;font-size:15px;line-height:1.75;max-width:750px;margin:0 auto;padding:24px 18px;">
+
+<div style="font-size:12px;color:#2e5bd6;border:1px solid #2e5bd6;border-radius:20px;padding:2px 12px;display:inline-block;margin:0 0 14px;">版本更新 · V2.7.0</div>
+
+<h1 style="font-size:21px;color:#1a1a1a;line-height:1.5;margin:0 0 16px;">擎天战机 V2.7.0 大更新：音乐回来了，Boss 弹幕炸裂，爆发由你说了算</h1>
+
+<p style="color:#666666;margin:0 0 18px;">"等等，怎么又没声音了？" —— 这是过去被问得最多的一句话。直到 V2.7.0，我们终于从根因上解决了它。</p>
+
+<p style="margin:10px 0;">今天，擎天战机迎来一次诚意满满的大更新。不只是修 Bug，更是一次体验的重新校准。下面把这版的五个关键变化讲给你听。</p>
+
+<h2 style="font-size:17px;color:#1a1a1a;margin:26px 0 10px;">🎵 音乐，这次真的回来了</h2>
+<p style="margin:10px 0;">先说最让人头大的"没音乐"。真正的元凶是<span style="color:#d23b3b;font-weight:700;">浏览器的自动播放策略</span>：音频上下文（AudioContext）必须在用户真实的点击 / 按键手势里<strong>同步</strong>唤醒。一旦走了异步链，浏览器就会判定"非用户触发"而静音。</p>
+<ul style="padding-left:20px;margin:10px 0;">
+  <li style="margin:6px 0;">在玩家<strong>第一次点击 / 按键</strong>时，直接在手势回调里同步 resume 音频；</li>
+  <li style="margin:6px 0;">开局不再走异步 then 链，改成「解锁即播放」。</li>
+</ul>
+<p style="margin:10px 0;">现在你一进游戏、第一次触摸屏幕，BGM 就会稳稳响起。右上角还加了实时音频徽标：<span style="color:#2e5bd6;font-weight:700;">🔊 播放中 / 🔇 已静音 / ⏸ 等待解锁</span>。</p>
+
+<h2 style="font-size:17px;color:#1a1a1a;margin:26px 0 10px;">💥 过载爆发：集满不自动炸，你说了算</h2>
+<p style="margin:10px 0;">以前的蓝条一满就自动引爆，经常浪费在最不值当的时刻。V2.7.0 改成更策略向的设计：</p>
+<ul style="padding-left:20px;margin:10px 0;">
+  <li style="margin:6px 0;">蓝条积满后，<span style="color:#2e5bd6;font-weight:700;">屏幕底部弹出红色【爆发】按钮</span>（也可按 L 键）；</li>
+  <li style="margin:6px 0;"><span style="color:#d23b3b;font-weight:700;">一局仅可释放一次</span>，引爆后蓝条归零、不再积攒；</li>
+  <li style="margin:6px 0;">效果：清空全场敌机与敌弹、奖励 <strong>300 分</strong>、<strong>1 秒无敌</strong>；对 Boss 造成一次 <strong>700 点重创</strong>（不会被秒杀）。</li>
+</ul>
+<div style="border-left:4px solid #2e5bd6;background:#f6f8ff;padding:10px 14px;margin:14px 0;color:#4a4a8a;">把爆发留给你最危险的时刻——Boss 弹幕最密的那一波，而不是随手放掉。</div>
+
+<h2 style="font-size:17px;color:#1a1a1a;margin:26px 0 10px;">👾 Boss 七弹道：读招、躲弹、反打</h2>
+<p style="margin:10px 0;">Boss 原本三段式、节奏偏单一。现在拥有<strong>七种弹幕模式</strong>，随机轮换：瞄准弹、环形弹、交叉弹、螺旋弹——以及本版新增的三种：</p>
+<ul style="padding-left:20px;margin:10px 0;">
+  <li style="margin:6px 0;"><strong>扇形弹幕（fan）</strong>：一片张开的弹雨，逼你横向走位；</li>
+  <li style="margin:6px 0;"><strong>弹墙（wall）</strong>：整排压下来的弹幕，考验精确移动；</li>
+  <li style="margin:6px 0;"><strong>三连爆发（burst）</strong>：短促三连，节奏强、容错低。</li>
+</ul>
+<p style="margin:10px 0;">每种都有清晰的视觉节奏，让你能"读招"。中等密度、可读性优先，既有压迫感又不劝退。</p>
+
+<h2 style="font-size:17px;color:#1a1a1a;margin:26px 0 10px;">🎯 爆率重平衡：火力更多，生命更珍</h2>
+<ul style="padding-left:20px;margin:10px 0;">
+  <li style="margin:6px 0;"><span style="color:#2e5bd6;font-weight:700;">火力道具爆率 0.42 → 0.55</span>：更容易变强，正反馈更密；</li>
+  <li style="margin:6px 0;"><span style="color:#d23b3b;font-weight:700;">生命道具爆率 0.06 → 0.025</span>：更稀缺，每个"♥"都值得珍惜。</li>
+</ul>
+
+<h2 style="font-size:17px;color:#1a1a1a;margin:26px 0 10px;">🚀 摇摆弹道：不再飞偏，弹弹到敌</h2>
+<p style="margin:10px 0;">有玩家反馈：高火力等级下，部分子弹会向右偏移，打不到左侧和正上方的敌人。</p>
+<p style="margin:10px 0;">我们把原本会"追自己"的追踪弹逻辑<strong>彻底移除</strong>，改成真正的<strong>摇摆弹道</strong>：子弹沿正弦曲线左右摆动（Lv3 ±55 / Lv4 ±70 / Lv5 ±78 幅度），但<strong>始终向上飞行</strong>。既覆盖更宽的正面火力，又保证能命中上方的敌人。手感更稳，火力更实。</p>
+
+<h2 style="font-size:17px;color:#1a1a1a;margin:26px 0 10px;">🛠 关于这款游戏</h2>
+<p style="margin:10px 0;">擎天战机始终是一款「零依赖、零图片、零构建」的网页游戏：所有机体、弹幕、星空、UI 由 Canvas 实时绘制，所有音效与 BGM 由 WebAudio 实时合成。下载一个 HTML 文件，双击即玩。</p>
+
+<div style="margin-top:24px;padding-top:14px;border-top:1px solid #eeeeee;font-size:14px;line-height:2;">
+  🎮 在线试玩：https://shenyicong.github.io/raiden-strike/<br>
+  📦 开源仓库：https://github.com/shenyicong/raiden-strike<br>
+  <span style="color:#999999;font-size:12px;">（这两行粘贴后在公众号编辑器里选中文字即可加"超链接"）</span>
+</div>
+
+<p style="text-align:center;color:#999999;font-size:12px;margin:18px 0 0;">擎天战机 · RAIDEN STRIKE · V2.7.0<br>如果你玩到了什么手感或 Bug，欢迎在评论区告诉我。</p>
+
+</body>
+</html>
