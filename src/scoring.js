@@ -1,8 +1,29 @@
 // scoring.js — 计分与擦弹判定 (FR-CBT-07 / 6.6)。
-import { ENEMIES, SCORE, GLOBAL, PLAYER } from './config.js';
+// V2.8.0 新增：连击 Combo 倍率 (FR-3.3) 与结算评级 (FR-1.4)。
+import { ENEMIES, SCORE, GLOBAL, PLAYER, FEEL, ENDGAME } from './config.js';
 
 export function killScore(type) {
   return ENEMIES[type]?.score ?? 0;
+}
+
+// 连击倍率：1 + 0.02×(combo-1)，封顶 ×2.0 (FR-3.3)。combo<1 时为 1.0。
+export function comboMultiplier(combo) {
+  if (!(combo > 1)) return 1;
+  const m = 1 + (FEEL.COMBO_MULT_STEP || 0.02) * (combo - 1);
+  return Math.min(FEEL.COMBO_MULT_MAX || 2, m);
+}
+
+// 结算评级 S/A/B/C：自上而下首个满足档位者；S 额外要求全程无伤 (FR-1.4)。
+// summary = { score, noMiss }
+export function gradeRun(summary = {}) {
+  const score = summary.score || 0;
+  const noMiss = !!summary.noMiss;
+  for (const g of ENDGAME.GRADES) {
+    if (score < (g.minScore || 0)) continue;
+    if (g.noMiss && !noMiss) continue;
+    return g.grade;
+  }
+  return 'C';
 }
 
 // 判定点碰撞/擦弹分类。返回 'hit' | 'graze' | 'none'。
