@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🚀 雷霆战机 · RAIDEN STRIKE **V2.6.1**
+# 🚀 雷霆战机 · RAIDEN STRIKE **V2.7.0**
 
 **纯原生 HTML5 + Canvas 的街机纵版弹幕射击游戏 · 零依赖 · 零图片资源 · 零构建**
 
@@ -8,7 +8,7 @@
 [![JS](https://img.shields.io/badge/JavaScript-ES%20Modules-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](#)
 [![Deps](https://img.shields.io/badge/Dependencies-0-00ff9d?style=flat-square)](#)
 [![License](https://img.shields.io/badge/License-MIT-39e7ff?style=flat-square)](#)
-[![Version](https://img.shields.io/badge/Version-2.6.1-5fa8ff?style=flat-square)](#)
+[![Version](https://img.shields.io/badge/Version-2.7.0-5fa8ff?style=flat-square)](#)
 
 ### ▶ 在线试玩 https://shenyicong.github.io/raiden-strike/
 
@@ -88,7 +88,7 @@ python -m http.server 8080      # 需要静态服务器（ES Module 限制）
 - **每关清理阈值（v2.6）**：每区设定需要清理的敌机数 —— 近地轨道 18 架 / 陨石带 24 架 / 母舰外围 30 架。
   达标即停止刷怪，场上清空后 Boss 立刻登场。HUD 右上角实时显示 `CLEAR 12/18`，达标后变成 `BOSS 待命`。
   阈值写在 `REGIONS[i].quota`；波次数量仍随对局时间成长（见下方 v2.4 动态难度）。
-- **三段式 Boss**：血量降到 66% / 33% 触发阶段转换，四种弹幕模式轮换。
+- **三段式 Boss**：血量降到 66% / 33% 触发阶段转换，**七种弹幕模式**（瞄准/环形/交叉/螺旋/扇形/弹墙/三连爆发）轮换。
 
 
 ### 难度与画风（v2.3）
@@ -131,12 +131,11 @@ python -m http.server 8080      # 需要静态服务器（ES Module 限制）
 - **Boss 强化**：血量 +20%（2970/4790/7300）、阶段间隔 1.8/1.5/1.2→1.2/1.0/0.8（射速 +50%）、
   弹速倍率 1.15/1.35/1.55、环形弹 14→18、螺旋弹 3→5、交叉弹补一发中央弹、横向机动 1.2/1.8/1.8
 
-### 自动射击与超载爆发（v2.6）
+### 自动射击与超载爆发（v2.7.0）
 - **全程自动开火**：桌面端不再需要长按 `空格`/`J`，进入关卡即持续射击，只需专心走位（按键仍保留，不影响手感）。
 - **道具自动下落**：爆出的 `P`/`B`/护盾/♥ 带初速与加速度下落（45 → 顶速 175 px/s），不再悬停在原地；靠近 130px 仍会被吸附过来。
-- **超载能量条（蓝条）**：命中敌机（每点伤害 0.35）、击破（+4）、擦弹（+0.6）都会充能，HUD 底部蓝色进度条实时显示，
-  集满瞬间**自动引爆**：清空当前屏幕所有敌机、清掉全部敌弹、奖励 300 分、获得 1 秒无敌。
-  Boss **不会被清屏秒杀**，改为承受一次 700 点重创。
+- **超载能量条（蓝条）**：命中敌机（每点伤害 0.20）、击破（+2.2）、擦弹（+0.30）都会充能，HUD 底部蓝色进度条实时显示。
+- **v2.7.0 起改为手动释放**：集满后屏幕底部出现红色【爆发】按钮（或按 `L`），**由玩家决定引爆时机**——清空当前屏幕所有敌机、清掉全部敌弹、奖励 300 分、获得 1 秒无敌；Boss 不会被清屏秒杀，改为承受一次 700 点重创。**一局仅可引爆一次**，引爆后蓝条归零且不再积攒。
   参数集中在 `config.js` 的 `OVERDRIVE`（`PER_DMG` / `PER_KILL` / `BOSS_DAMAGE` / `INVULN` 等）。
 
 ### 视听表现
@@ -144,6 +143,20 @@ python -m http.server 8080      # 需要静态服务器（ES Module 限制）
 - **纯 WebAudio 合成音效**：主 / 音效 / 音乐三条独立音量总线。
 - **三层视差星空** + 动态星云 + 屏幕震动 + 受击白闪 + 暗角。
 - **粒子池 / 子弹池**：循环复用，大规模爆炸也不掉帧。
+
+---
+
+## 🆕 V2.7.0 调优与修复（本版）
+
+| 类别 | 问题 | V2.7.0 处理 |
+|---|---|---|
+| **设置面板** | 暂停态打开设置后，主循环每帧 `sync` 把设置面板重建回暂停菜单（"设置点不开"） | `ui.sync` 将 `settings` 视为合法视图并在暂停态保持 |
+| **触屏按钮** | 手机端炸/暂停/慢按钮只定义未渲染，是"隐形热区" | `main.js` 在触屏设备每帧绘制 `drawTouchButtons` |
+| **桌面误触** | 桌面端点击对应坐标也会误触发隐形触屏按钮 | `InputManager.touchMode` 门控，触屏按钮仅触屏设备响应 |
+| **Boss 音乐** | Boss 战中暂停再恢复，音乐错误切回关卡主题 | `startMusic(region, boss)` 按当前 Boss 状态恢复曲目 |
+| **自爆机** | kamikaze 只沿直线下落，不打玩家 | 改为朝玩家**追踪俯冲**（保持向下动量，永不反向上升） |
+| **数值失真** | `WEAPONS.pellets` 与实发弹数不符（Lv.4/Lv.5），理论 DPS / Boss 时长模型失真 | pellets 修正为 3/6；敌弹基础速度、Boss 弹速、Boss 命中半径等字面量集中入 `config.js` |
+| **手感听感** | Boss 击破缺乏冲击感；BGM 底鼓 32.7Hz 几乎不可闻；诊断 P99 实为 max | Boss 击破震屏+白闪+双圈爆炸；底鼓升至 65.4Hz；P99 改为真实 99 分位 |
 
 ---
 
@@ -167,7 +180,7 @@ raiden-strike/
 ├── index.html            # 入口页面（需静态服务器；或用下面单文件版）
 ├── raiden-strike.html    # ★ V2.0 单文件自包含版：双击即玩，修复 file:// 打不开
 ├── dist.bundle.js        # 单文件版内联脚本（供无头冒烟测试）
-├── package.json          # version 2.6.1（与 src/config.js 的 VERSION 同步）
+├── package.json          # version 2.7.0（与 src/config.js 的 VERSION 同步）
 ├── LICENSE
 ├── src/                  # 17 个 ES Module（开发 / 测试用）
 │   ├── config.js         # ★ 所有平衡性参数（改这里调难度 / 手感）
