@@ -160,7 +160,7 @@ export class Game {
       p.y = clamp(this.input.dragY, p.hitR, VIEW.H - p.hitR);
     }
     const shots = p.update(dt, inp, inp.precision);
-    if (shots) { for (const s of shots) this.pBullets.push(new Bullet(s.x, s.y, s.vx, s.vy, { dmg: s.dmg, fromPlayer: true, homing: s.homing, r: 4 })); this.audio.sfx('shoot'); }
+    if (shots) { for (const s of shots) this.pBullets.push(new Bullet(s.x, s.y, s.vx, s.vy, { dmg: s.dmg, fromPlayer: true, homing: s.homing, sway: s.sway, swayAmp: s.swayAmp, swayFreq: s.swayFreq, swayPhase: s.swayPhase, r: 4 })); this.audio.sfx('shoot'); }
 
     // 波次（v2.6：达到本区清理阈值即停止刷怪）
     if (this.waves && !this.waves.done) {
