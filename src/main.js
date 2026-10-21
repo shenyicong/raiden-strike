@@ -100,6 +100,12 @@ function boot() {
   };
   ui.sync(game.sm.state);
   audio.unlock();
+  // v2.7.0：每次用户手势（点击/按键）都强制解锁并恢复 AudioContext。
+  // 浏览器自动播放策略要求 resume() 必须同步发生在用户手势事件处理器内；
+  // 仅依赖 startRun 内的 unlock 偶发会因异步链导致手势上下文失效而失败，故在 document 级兜底。
+  const unlockAudio = () => audio.unlock();
+  document.addEventListener('pointerdown', unlockAudio, { passive: true });
+  document.addEventListener('keydown', unlockAudio, { passive: true });
   requestAnimationFrame(loop);
 }
 performance.mark?.('ready');
