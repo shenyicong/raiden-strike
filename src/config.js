@@ -2,7 +2,7 @@
 // NFR-MAINT-01: 全部平衡性参数集中于单一配置文件。
 
 // 游戏版本号：标题界面 / README 徽章 / package.json 均以此为准，随版本更新同步修改。
-export const VERSION = '2.7.0';
+export const VERSION = '2.8.0';
 
 export const VIEW = {
   W: 480,            // 逻辑分辨率宽 (6.1)
@@ -219,3 +219,83 @@ export const PERF = {
 export const STORAGE_KEY = 'raiden.v1';
 export const STORAGE_SCHEMA_VERSION = 1;
 export const STORAGE_MAX_BYTES = 4096;
+
+// ── V2.8.0 模式系统 (FR-2.1~2.5 / 顶级版 §7.2) ───────────────────────────────
+// 战役：三区线性，击破第 3 区旗舰即 victory；无尽：无限波次、难度持续上涨、无胜利条件。
+// 两模式的计分与存档完全隔离（FR-2.5），数值全部集中在此，逻辑禁止硬编码。
+export const MODES = {
+  campaign: {
+    id: 'campaign',
+    label: '战役模式',
+    desc: '三区线性推进 · 击破旗舰即通关',
+    endless: false,
+    hasVictory: true,      // 存在胜利终点
+    regionCycle: false,    // 区域不循环，走完即通关
+    quotaScale: 1.0,       // 本区清理阈值倍率（沿用 REGIONS[].quota）
+    rampMaxSteps: 6,       // 难度递进档位上限（与 RAMP.MAX_STEPS 一致）
+    dropChance: 0.20,      // 掉落基础概率（与 DROPS.BASE_CHANCE 一致）
+    scoreMult: 1.0,
+    bossEliteEvery: 0,     // 战役按 quota 出 Boss，不按波数
+  },
+  endless: {
+    id: 'endless',
+    label: '无尽模式',
+    desc: '无限波次 · 难度持续上涨 · 冲击最高分',
+    endless: true,
+    hasVictory: false,     // 无胜利条件，死亡即结算
+    regionCycle: true,     // 区域视觉循环，避免内容耗尽
+    quotaScale: 0,         // 无尽不按 quota 停刷怪
+    rampMaxSteps: 12,      // 难度上涨不封顶（上限提高一倍）
+    dropChance: 0.28,      // 掉落更慷慨，维持长时间作战爽感
+    scoreMult: 1.15,       // 无尽计分倍率
+    bossEliteEvery: 8,     // ELITE_EVERY：每 8 波出现精英 Boss
+  },
+};
+export const DEFAULT_MODE = 'campaign';
+export const MODE_IDS = Object.keys(MODES);
+
+// ── V2.8.0 对局终局与结算 (FR-1.1~1.5 / 顶级版 §7.1) ───────────────────────
+export const ENDGAME = {
+  DEADLOCK_TIMEOUT: 5.0,   // 无敌人/无 Boss/无进展时自动推进的最长空屏（秒）(FR-1.3)
+  REGION_CLEAR_TIME: 2.2,  // region-clear 过渡演出时长（秒）(FR-1.5)
+  // 评级档位：自上而下首个命中者为准（FR-1.4）
+  GRADES: [
+    { grade: 'S', minScore: 60000, noMiss: true },
+    { grade: 'A', minScore: 40000 },
+    { grade: 'B', minScore: 20000 },
+    { grade: 'C', minScore: 0 },
+  ],
+};
+
+// ── V2.8.0 打击感 Game-Feel (FR-3.1~3.6 / 顶级版 §7.3) ─────────────────────
+export const FEEL = {
+  COMBO_WINDOW: 2.0,        // 连击窗口（秒），超时重置 (FR-3.3)
+  COMBO_MULT_STEP: 0.02,    // 倍率 = 1 + STEP ×(combo-1)，封顶 COMBO_MULT_MAX
+  COMBO_MULT_MAX: 2.0,
+  HITSTOP_FRAMES: 3,        // 命中停顿帧数（2~4 帧），重型敌机 / Boss 阶段切换 (FR-3.4)
+  HITSTOP_FPS: 60,          // 帧→秒换算基准
+  HIT_FLASH_MS: 90,         // 敌机受击闪烁时长（毫秒）(FR-3.1)
+  SPARK_COUNT: 6,           // 命中火花粒子数（reduced-motion 减半）
+  SHAKE_LIGHT: 0.12,        // 击破轻震屏
+  SHAKE_HEAVY: 0.35,        // 重型/Boss 击破震屏
+  FLOAT_LIFE: 0.8,          // 分数飘字存活时长（秒）
+  KILL_LAYERS: 4,           // 击破爆炸层数（核心闪光/冲击波/碎片/烟雾）(FR-3.2)
+};
+
+// ── V2.8.0 画风与 2.5D 战机 (FR-4.1~4.4 / 顶级版 §7.4) ─────────────────────
+// 统一视觉语言：自机青蓝 / 敌机暖色 / Boss 紫红；敌弹按危险度分色提升可读性。
+export const PALETTE = {
+  PLAYER: '#7fe7ff',
+  PLAYER_DARK: '#16324f',
+  ENEMY_WARM: '#ffa94d',
+  BOSS_ACCENT: '#c77dff',
+  BULLET_PLAYER: '#39e7ff',
+  DANGER: { normal: '#b6c4e0', fast: '#ffd43b', lethal: '#ff5252' },
+};
+export const ART = {
+  SPRITE_3D: true,          // 预渲染多帧 Sprite（drawImage），可在设置里回退 2D 描边 (FR-4.1/4.4)
+  GLOW: true,               // 辉光（reduced-motion 关闭）
+  TRAIL: true,              // 敌弹拖尾（reduced-motion 关闭）
+  DANGER_FAST_SPEED: 190,   // ≥ 此速度视为「高速弹」→ 黄色
+  DANGER_LETHAL_SPEED: 260, // ≥ 此速度视为「致命弹」→ 红色
+};
