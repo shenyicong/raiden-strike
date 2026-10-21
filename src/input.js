@@ -12,6 +12,10 @@ export const TOUCH_BUTTONS = {
   slow:  { x: 42, y: VIEW.H - 112, r: 22, label: '慢' },
 };
 
+// v2.6.2：超载爆发"释放"按钮（逻辑坐标）。集满且本局未引爆时由渲染层绘制并响应点击。
+// 仅当 canOverdrive 回调为 true 才拦截点击，否则回退为拖动，避免挡住正常操作区域。
+export const OVERDRIVE_BUTTON = { x: VIEW.W / 2, y: VIEW.H - 96, r: 30, label: '爆发' };
+
 export class InputManager {
   constructor(canvas, handlers = {}) {
     this.canvas = canvas;
@@ -25,6 +29,7 @@ export class InputManager {
     this.precision = false;
     this.bombFlash = 0;             // 按钮按下反馈计时（供渲染层读取）
     this.slowOn = false;            // 触屏端"精确慢速"开关状态
+    this.touchMode = false;         // v2.7：触屏按钮（炸/暂停/慢）仅触屏设备响应；桌面端不绘制也不响应
     this._bind();
   }
 
@@ -70,6 +75,7 @@ export class InputManager {
       if (key === 'p' || key === 'escape') { this.h.onPause?.(); return; }
       if (key === 'm') { this.h.onMute?.(); return; }
       if (key === 'k' || key === 'x') { this.h.onBomb?.(); return; } // v2.2 恢复使用
+      if (key === 'l') { this.h.onOverdrive?.(); return; } // v2.6.2 释放超载爆发
       if (key === 'enter') { this.h.onStart?.(); return; }
       this.keys.add(key);
       if (key === 'shift') this.precision = true;
@@ -87,11 +93,19 @@ export class InputManager {
     return { x: (e.clientX - rect.left) / sx, y: (e.clientY - rect.top) / sy };
   }
 
-  // 命中哪个屏幕按钮？返回 key 或 null（按钮互不重叠，取距离最近且在半径内的）
+  // 命中哪个屏幕按钮？返回 key 或 null（按钮互不重叠，取距离最近且在半径内的）。
+  // v2.7：炸/暂停/慢 三个触屏按钮仅在 touchMode（触屏设备）下命中；
+  //       爆发按钮所有设备均可点（桌面端同样绘制），不可释放时让位给拖动。
   hitButton(x, y) {
-    for (const key of ['bomb', 'pause', 'slow']) {
-      const b = TOUCH_BUTTONS[key];
-      if (Math.hypot(x - b.x, y - b.y) <= b.r) return key;
+    if (this.touchMode) {
+      for (const key of ['bomb', 'pause', 'slow']) {
+        const b = TOUCH_BUTTONS[key];
+        if (Math.hypot(x - b.x, y - b.y) <= b.r) return key;
+      }
+    }
+    // v2.6.2 超载爆发按钮（仅可释放时命中，否则视为空白让位给拖动）
+    if (this.h.canOverdrive?.()) {
+      if (Math.hypot(x - OVERDRIVE_BUTTON.x, y - OVERDRIVE_BUTTON.y) <= OVERDRIVE_BUTTON.r) return 'overdrive';
     }
     return null;
   }
@@ -106,6 +120,7 @@ export class InputManager {
       if (btn === 'bomb') this.h.onBomb?.();
       else if (btn === 'pause') this.h.onPause?.();
       else if (btn === 'slow') { this.precision = !this.precision; this.slowOn = this.precision; }
+      else if (btn === 'overdrive') this.h.onOverdrive?.(); // v2.6.2 释放超载爆发
       return;
     }
     this.canvas.setPointerCapture?.(e.pointerId);
