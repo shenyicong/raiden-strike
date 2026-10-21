@@ -7,16 +7,22 @@ export const STATES = {
   CLEAR: 'clear',
   GAMEOVER: 'gameover',
   WIN: 'win',
+  // V2.8.0 (FR-1.5)：区域通关过渡与战役通关表现态
+  REGION_CLEAR: 'region-clear',
+  VICTORY: 'victory',
 };
 
-// 合法转换表。未在表中的转换视为非法，被忽略。
+// 合法转换表（PRD 附录B 状态机完整状态流转表）。未在表中的转换视为非法，被忽略。
+// win 为 V2.7 及更早的历史通关态，保留以兼容旧存档与既有测试；V2.8 起战役通关统一走 victory。
 const TRANSITIONS = {
-  ready:    ['playing'],
-  playing:  ['paused', 'clear', 'gameover', 'win'],
-  paused:   ['playing', 'ready'],
-  clear:    ['playing', 'paused'],
-  gameover: ['ready'],
-  win:      ['ready'],
+  ready:        ['playing'],
+  playing:      ['paused', 'clear', 'gameover', 'win', 'region-clear', 'victory'],
+  paused:       ['playing', 'ready'],
+  clear:        ['playing', 'region-clear'],
+  'region-clear': ['playing', 'victory'],
+  victory:      ['ready'],
+  gameover:     ['ready'],
+  win:          ['ready'],
 };
 
 export class StateMachine {
