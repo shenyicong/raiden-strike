@@ -1,7 +1,8 @@
 // render.js — Canvas 2D 程序化绘制 (FR-PRS-01/02/05/06)。
-import { VIEW, PLAYER, GLOBAL, REGIONS, BOSS, OVERDRIVE } from './config.js';
+import { VIEW, PLAYER, GLOBAL, REGIONS, BOSS, OVERDRIVE, PALETTE, ART, FEEL } from './config.js';
 import { TOUCH_BUTTONS } from './input.js';
 import { hitboxVisible, motionFlags } from './settings.js';
+import { shipSprite, poseFromTilt, spritesAvailable, SPRITE_SIZE } from './sprites.js';
 
 export class Renderer {
   constructor(ctx, settings) {
@@ -78,6 +79,39 @@ export class Renderer {
     const reduced = this.settings && this.settings.motion === 'reduced';
     const ship = p.ship || { id: 'raiden', color: '#7fe7ff' };
     const main = ship.color;
+    // ── V2.8.0 预渲染 2.5D Sprite (FR-4.1) ──
+    // 命中即用 drawImage，零新增依赖、零每帧渐变开销；无 DOM 或设置关闭时回退矢量描边 (FR-4.4)。
+    const spriteOn = ART.SPRITE_3D && settings.sprite3d !== false && spritesAvailable();
+    const sprite = spriteOn ? shipSprite(ship.id, poseFromTilt(p.tilt || 0), ship.color) : null;
+    if (sprite) {
+      ctx.save();
+      ctx.drawImage(sprite, p.x - SPRITE_SIZE / 2, p.y - SPRITE_SIZE / 2, SPRITE_SIZE, SPRITE_SIZE);
+      // 推进器火焰（动态，叠在 sprite 之上保持喷射感）
+      const f = 1 + Math.sin(t * 40) * 0.22;
+      const fg = ctx.createLinearGradient(0, p.y + 12, 0, p.y + 30 * f);
+      fg.addColorStop(0, 'rgba(180,255,255,0.95)');
+      fg.addColorStop(0.4, 'rgba(57,231,255,0.7)');
+      fg.addColorStop(1, 'rgba(57,231,255,0)');
+      ctx.fillStyle = fg;
+      ctx.beginPath();
+      ctx.moveTo(p.x - 5, p.y + 12); ctx.lineTo(p.x, p.y + 20 + 14 * f); ctx.lineTo(p.x + 5, p.y + 12);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+      // 护盾环与判定点（与矢量分支共用）
+      ctx.save(); ctx.translate(p.x, p.y);
+      if (p.shield > 0) {
+        ctx.strokeStyle = p.shield < 1 && Math.floor(t * 2 * PLAYER.BLINK_HZ) % 2 === 0 ? 'rgba(120,200,255,0.3)' : 'rgba(120,200,255,0.8)';
+        ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 22, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.restore();
+      if (hitboxVisible(settings)) {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.hitR, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,80,80,0.9)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.hitR, 0, Math.PI * 2); ctx.stroke();
+      }
+      return;
+    }
     ctx.save();
     ctx.translate(p.x, p.y);
 
@@ -188,6 +222,13 @@ export class Renderer {
       glow('#4dabf7', 3, 0, -2);
       hpBar(36, 20, '#4dabf7');
     }
+    // V2.8.0 命中闪烁 Hit-Flash (FR-3.1)：受击瞬间叠一层白光，衰减由 Game 侧计时驱动
+    if (e.flash > 0) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = `rgba(255,255,255,${Math.min(0.85, e.flash * 8)})`;
+      ctx.beginPath(); ctx.arc(0, 0, e.radius * 1.15, 0, Math.PI * 2); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+    }
     ctx.restore();
   }
 
@@ -244,11 +285,31 @@ export class Renderer {
     ctx.fillStyle = accent; ctx.fillRect(x, y, w * Math.max(0, b.hp / b.maxHp), 8);
   }
 
-  // 子弹：v1.0 的外发光 + 亮核
+  // 子弹：v1.0 的外发光 + 亮核。
+  // V2.8.0：敌弹按危险度分色 + 轻微拖尾，提升弹幕可读性 (FR-4.2)；减弱动效档关闭拖尾。
+  dangerColor(b) {
+    if (b.fromPlayer) return PALETTE.BULLET_PLAYER;
+    const sp = Math.hypot(b.vx, b.vy);
+    if (sp >= (ART.DANGER_LETHAL_SPEED || 260)) return PALETTE.DANGER.lethal;
+    if (sp >= (ART.DANGER_FAST_SPEED || 190)) return PALETTE.DANGER.fast;
+    return PALETTE.DANGER.normal;
+  }
+
   drawBullet(b) {
     const ctx = this.ctx;
     const reduced = this.settings && this.settings.motion === 'reduced';
-    const color = b.fromPlayer ? '#39e7ff' : '#ffd43b';
+    const color = this.dangerColor(b);
+    // 拖尾：沿速度反方向拉出一小段，让高速弹的来向可辨
+    if (!reduced && ART.TRAIL && !b.fromPlayer) {
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = Math.max(1, b.r * 0.9);
+      ctx.beginPath();
+      ctx.moveTo(b.x - b.vx * 0.035, b.y - b.vy * 0.035);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     if (!reduced) {
       const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r * 2.4);
       g.addColorStop(0, color); g.addColorStop(1, 'rgba(0,0,0,0)');
@@ -285,6 +346,35 @@ export class Renderer {
     this.ctx.globalAlpha = 1;
   }
 
+  // V2.8.0 冲击波环 (FR-3.2)：核心闪光向外扩散，透明度随生命衰减
+  drawShockwaves(list) {
+    if (!list || !list.length) return;
+    const ctx = this.ctx;
+    for (const s of list) {
+      const a = Math.max(0, 1 - s.t / s.life);
+      ctx.globalAlpha = a * 0.9;
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = 2 + 2 * a;
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // V2.8.0 分数飘字 (FR-3.2)：击破处向上飘出的得分/连击提示
+  drawFloats(list) {
+    if (!list || !list.length) return;
+    const ctx = this.ctx;
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    for (const f of list) {
+      const a = Math.max(0, 1 - f.t / f.life);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = f.color;
+      ctx.fillText(f.text, f.x, f.y);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   drawHUD(g) {
     const ctx = this.ctx;
     ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
@@ -307,6 +397,17 @@ export class Renderer {
     ctx.fillText(kills >= quota ? 'BOSS 待命' : `CLEAR ${kills}/${quota}`, 330, 30);
     ctx.fillStyle = (g.player.ship && g.player.ship.color) || '#7fe7ff';
     ctx.fillText(`SHIP ${g.player.ship ? g.player.ship.name : '雷霆号'}`, 8, 50);
+    // V2.8.0 连击显示 (FR-3.3)：连击 ≥2 才出现，倍率越高越醒目
+    if ((g.combo || 0) >= 2) {
+      const m = g.comboMult ?? 1;
+      ctx.fillStyle = m >= 1.5 ? '#ffd166' : '#9fe8ff';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText(`COMBO ${g.combo} ×${m.toFixed(2)}`, 8, 78);
+    }
+    // V2.8.0 模式标识 (FR-2.3)
+    ctx.fillStyle = '#9fb0d0'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText(g.mode === 'endless' ? '无尽模式' : '战役模式', VIEW.W - 8, VIEW.H - 10);
+    ctx.textAlign = 'left';
     ctx.fillStyle = '#fff';
     // v2.7.0：音频状态徽标（实时反映 AudioContext 状态，便于排查"没音乐"）
     // 🔊 绿=已解锁播放中 / 🔇 红=静音 / ⏸ 黄=上下文挂起(未解锁) / ✕ 灰=音频不可用
