@@ -1,5 +1,5 @@
 // main.js — 启动与渲染循环。零构建，ES Module 直接由浏览器加载 (NFR-MAINT-03)。
-import { VIEW, HIT_FEEDBACK } from './config.js';
+import { VIEW, HIT_FEEDBACK, MODES } from './config.js';
 import { STATES } from './statemachine.js';
 import { Renderer } from './render.js';
 import { AudioEngine } from './audio.js';
@@ -71,7 +71,8 @@ function boot() {
     getPlayerPos: () => ({ x: game.player.x, y: game.player.y }), // 拖动跟手用
     onInterrupt: () => { game.interrupt(); ui.sync(game.sm.state); },
     onStart: () => {
-      if (game.sm.is(STATES.READY) || game.sm.is(STATES.GAMEOVER) || game.sm.is(STATES.WIN)) {
+      // V2.8.0：victory 为战役通关态，必须纳入守卫，否则通关结算页按 Enter 无响应（FR-1.1/FR-1.4）
+      if (game.sm.is(STATES.READY) || game.sm.is(STATES.GAMEOVER) || game.sm.is(STATES.WIN) || game.sm.is(STATES.VICTORY)) {
         game.startRun(); ui.sync(game.sm.state);
       }
     },
@@ -79,6 +80,28 @@ function boot() {
   input.touchMode = game.mobile; // v2.7：触屏按钮仅触屏设备响应（桌面不绘制也不误触发）
   game.input = input;
   ui.onAction = (a) => {
+    // V2.8.0 模式切换 (FR-2.3)
+    if (a.startsWith('mode:')) {
+      const id = a.slice(5);
+      if (MODES[id]) {
+        game.settings.mode = id;
+        game.mode = id;
+        game.persistSettings();
+        ui.setStatus('已选择模式 ' + MODES[id].label);
+      }
+      ui.title();
+      return;
+    }
+    // V2.8.0 结算页「切换模式」：直接切到另一模式并回到标题 (FR-1.4)
+    if (a === 'switchmode') {
+      const next = game.mode === 'endless' ? 'campaign' : 'endless';
+      game.settings.mode = next;
+      game.mode = next;
+      game.persistSettings();
+      game.sm.transition(STATES.READY);
+      ui.sync(game.sm.state);
+      return;
+    }
     if (a.startsWith('ship:')) {  // 选战机：仅已解锁机型可切换 (v2.1)
       const id = a.slice(5);
       try {
@@ -137,8 +160,10 @@ function draw() {
   for (const b of game.pBullets) renderer.drawBullet(b);
   for (const b of game.eBullets) renderer.drawBullet(b);
   for (const pt of game.particles) renderer.drawParticle(pt);
+  renderer.drawShockwaves(game.shockwaves); // V2.8.0 击破冲击波环 (FR-3.2)
   for (const d of game.drops) renderer.drawDrop(d);
   renderer.drawPlayer(game.player, game.settings, game.t);
+  renderer.drawFloats(game.floats);         // V2.8.0 分数飘字 (FR-3.2)
   renderer.drawHUD(game);
   // v2.7：触屏端每帧绘制虚拟按钮（此前按钮从未渲染，只在热区"隐形响应"）
   if (game.mobile) renderer.drawTouchButtons(game);
