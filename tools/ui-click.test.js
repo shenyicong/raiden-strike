@@ -127,3 +127,31 @@ test('v2.1 标题页：渲染 6 张战机卡，未解锁的置灰且标注解锁
   ui.overlay.dispatch('click', { target: phantom, stopPropagation() {} });
   assert.equal(picked, 'ship:phantom');
 });
+
+// v2.7 修复回归：暂停态打开设置后，主循环每帧 sync('paused') 不得把设置面板重建回暂停菜单。
+// 旧实现 settings() 手动置 view='settings'，但 sync 会把 paused 解析为 'pause' 并重建 DOM，
+// 导致设置面板打开一帧即被顶掉（"设置点不开"）。
+test('v2.7 设置面板：暂停态每帧 sync 后仍保持设置视图，不被暂停菜单覆盖', async () => {
+  globalThis.document = { createElement: (tag) => new FakeEl(tag) };
+  const { UI } = await import('../src/ui.js');
+  const root = new FakeEl('div');
+  const fakeGame = {
+    data: { best: null, top5: [] },
+    settings: { volume: { master: 70, sfx: 70, music: 50 }, hitboxDot: true, motion: 'standard', difficulty: 'standard' },
+    score: 0, graze: { count: 0 },
+    persistSettings() {},
+  };
+  const ui = new UI(root, fakeGame);
+  ui.sync('paused');   // 打开暂停菜单
+  ui.settings();       // 进入设置面板（view='settings'）
+  assert.ok(ui.overlay.querySelector('#v-master'), '设置面板应存在主音量滑块');
+
+  // 模拟主循环每帧 sync（状态仍为 paused）：设置面板不得被重建覆盖
+  for (let i = 0; i < 30; i++) ui.sync('paused');
+  assert.ok(ui.overlay.querySelector('#v-master'), '30 帧后设置滑块仍应在（不得被暂停菜单覆盖）');
+  assert.equal(ui.overlay.querySelector('#b-resume'), null, '不应出现暂停菜单的"继续"按钮');
+
+  // 返回游戏：状态切到 playing 后遮罩隐藏
+  ui.sync('playing');
+  assert.equal(ui.overlay.style.display, 'none', '回到 playing 后设置面板应隐藏');
+});
