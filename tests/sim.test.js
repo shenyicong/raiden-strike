@@ -133,6 +133,7 @@ test('v2.2 拖动跟手：按下时记录机身与手指的相对偏移，移动
     onBomb: () => { bombCalls++; },
     onPause: () => { pauseCalls++; },
   });
+  inp.touchMode = true; // v2.7：本用例模拟触屏设备，需开启触屏按钮响应
   // 手指按在机身下方 30px 处
   const down = { pointerId: 1, clientX: 240, clientY: 660 };
   events.pointerdown.forEach((f) => f(down));
@@ -303,27 +304,34 @@ test('v2.6 超载积攒：命中敌机与击破都会为蓝条充能', () => {
   assert.ok(g.overdrive > 0, '命中敌机后蓝条应开始充能');
 });
 
-test('v2.6 超载爆发：蓝条集满自动引爆，清空屏幕所有敌机', () => {
+test('v2.6.2 超载爆发：蓝条集满后由玩家手动释放，清空屏幕所有敌机', () => {
   const g = newGame();
   g.startRun();
   for (let i = 0; i < 3; i++) g.enemies.push(new entitiesModule.Enemy('scout', 80 + i * 120, 220));
   g.overdrive = OVERDRIVE.MAX; // 直接置满
   const before = g.score;
-  g.step(1 / 60, performance.now());
-  assert.equal(g.enemies.length, 0, '集满应清空屏幕上所有敌机');
+  // v2.6.2：集满不再自动引爆，需调用 releaseOverdrive 手动释放
+  assert.equal(g.enemies.length, 3, '集满但未释放前，敌机应仍在场');
+  g.releaseOverdrive();
+  assert.equal(g.enemies.length, 0, '释放应清空屏幕上所有敌机');
   assert.equal(g.overdrive, 0, '引爆后蓝条应清零');
+  assert.ok(g.overdriveUsed, '引爆后本局已使用标记应为真（一局仅一次）');
   assert.ok(g.score > before, '清屏应计分');
   assert.ok(g.player.invuln > 0, '引爆后应有短暂无敌');
+  // 一局仅一次：再次集满也不可触发
+  g.overdrive = OVERDRIVE.MAX;
+  g.releaseOverdrive();
+  assert.equal(g.overdrive, OVERDRIVE.MAX, '已引爆过则再次释放无效（蓝条保持满，不触发）');
 });
 
-test('v2.6 超载爆发：Boss 不被秒杀，只承受一次重创', () => {
+test('v2.6.2 超载爆发：Boss 不被秒杀，只承受一次重创', () => {
   const g = newGame();
   g.startRun();
   g.boss = new entitiesModule.Boss(0);
   g.boss.entering = false;
   const hp0 = g.boss.hp;
   g.overdrive = OVERDRIVE.MAX;
-  g.step(1 / 60, performance.now());
+  g.releaseOverdrive(); // v2.6.2 手动释放
   assert.ok(g.boss && g.boss.hp < hp0, 'Boss 应受伤而非被清屏秒杀');
   assert.ok(hp0 - g.boss.hp >= OVERDRIVE.BOSS_DAMAGE, `伤害应至少 ${OVERDRIVE.BOSS_DAMAGE}`);
 });
@@ -436,4 +444,70 @@ test('v2.6.1 背景音乐：三区各一套主题 + Boss 紧张版，可切换�
   g.boss.hp = 0;
   g.onBossDead();
   assert.ok(calls.some((c) => c[0] === 'track' && c[1] === 1 && c[2] === false), '进入新区应换曲');
+});
+
+// ── v2.7 修复回归：Boss 战中暂停再恢复，音乐必须回到 Boss 紧张版，而不是错误切回关卡主题 ──
+test('v2.7 Boss 战暂停恢复：按当前 Boss 状态恢复正确曲目', async () => {
+  const calls = [];
+  const audio = {
+    unlock: () => Promise.resolve(true), sfx() {}, applyGains() {}, setMuted() {}, init() {},
+    startMusic(r, boss) { calls.push(['start', r, !!boss]); }, stopMusic() { calls.push(['stop']); },
+    setTrack(r, boss) { calls.push(['track', r, !!boss]); },
+  };
+  const { Game } = await import('../src/game.js');
+  const g = new Game({ renderer: fakeRenderer, audio, input: fakeInput(), backend: memBackend() });
+  g.startRun();
+  await new Promise((r) => setTimeout(r, 0));
+  calls.length = 0;
+  // 进入 Boss 战
+  g.regionKills = g.regionQuota;
+  g.step(1 / 60, performance.now());
+  g.enemies = [];
+  g.step(1 / 60, performance.now() + 16);
+  assert.ok(g.boss, '应拉出 Boss');
+  calls.length = 0;
+  // 暂停（停乐）→ 恢复：必须重新以 boss=true 启动紧张版曲目
+  g.pauseToggle();
+  assert.ok(calls.some((c) => c[0] === 'stop'), '暂停应停乐');
+  calls.length = 0;
+  g.pauseToggle();
+  assert.ok(calls.some((c) => c[0] === 'start' && c[2] === true), `Boss 战恢复应启动 Boss 曲目，实际 ${JSON.stringify(calls)}`);
+});
+
+// ── v2.7 自爆机追踪俯冲：朝玩家横向偏转，且永不反向上升 ──
+test('v2.7 自爆机俯冲追踪：朝玩家偏转并持续下坠', () => {
+  const mod = entitiesModule;
+  const player = { x: 420, y: 600, alive: true };
+  const e = new mod.Enemy('kamikaze', 100, 100);
+  const x0 = e.x, y0 = e.y;
+  for (let i = 0; i < 60; i++) e.update(1 / 60, null, player);
+  assert.ok(e.x > x0 + 20, `自爆机应横向追向玩家，实际位移 ${(e.x - x0).toFixed(1)}px`);
+  assert.ok(e.y > y0, '自爆机应持续向下');
+  // 玩家在自爆机上方时：仍应向下俯冲（不允许反向上升飞出战场）
+  const e2 = new mod.Enemy('kamikaze', 100, 300);
+  const y2 = e2.y;
+  for (let i = 0; i < 60; i++) e2.update(1 / 60, null, { x: 100, y: 50, alive: true });
+  assert.ok(e2.y > y2, '玩家在上方时自爆机仍应向下俯冲，实际位移 ' + (e2.y - y2).toFixed(1));
+});
+
+// ── v2.7 触屏按钮设备门控：桌面端不响应炸/暂停/慢，爆发按钮两端可点 ──
+test('v2.7 触屏按钮：仅触屏设备响应，爆发按钮不受门控', () => {
+  const events = {};
+  const canvas = {
+    _logicalW: 480, _logicalH: 720,
+    addEventListener: (t, f) => { (events[t] || (events[t] = [])).push(f); },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 480, height: 720 }),
+    setPointerCapture() {},
+  };
+  globalThis.window = { addEventListener: (t, f) => { (events[t] || (events[t] = [])).push(f); } };
+  globalThis.document = { addEventListener() {} };
+  const { InputManager, TOUCH_BUTTONS, OVERDRIVE_BUTTON } = inputModule;
+  const inp = new InputManager(canvas, { canOverdrive: () => true });
+  inp.touchMode = false; // 桌面端
+  assert.equal(inp.hitButton(TOUCH_BUTTONS.bomb.x, TOUCH_BUTTONS.bomb.y), null, '桌面端不应命中炸弹热区');
+  assert.equal(inp.hitButton(TOUCH_BUTTONS.pause.x, TOUCH_BUTTONS.pause.y), null, '桌面端不应命中暂停热区');
+  assert.equal(inp.hitButton(OVERDRIVE_BUTTON.x, OVERDRIVE_BUTTON.y), 'overdrive', '爆发按钮桌面端可点');
+  inp.touchMode = true; // 触屏端
+  assert.equal(inp.hitButton(TOUCH_BUTTONS.bomb.x, TOUCH_BUTTONS.bomb.y), 'bomb', '触屏端应命中炸弹按钮');
+  assert.equal(inp.hitButton(TOUCH_BUTTONS.pause.x, TOUCH_BUTTONS.pause.y), 'pause', '触屏端应命中暂停按钮');
 });
