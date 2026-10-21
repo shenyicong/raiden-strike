@@ -75,7 +75,10 @@ export class Game {
     this.sm.transition(STATES.PLAYING);
     this.runStart = performance.now();
     performance.mark?.('run_start');
-    this.audio.unlock().then(() => this.audio.startMusic(this.regionIndex)); // v2.6.1 按区域选曲
+    // v2.7.0：同步调用（不再 .then 异步链，否则 resume() 脱离用户手势上下文被浏览器拒绝）。
+    // 本方法经由 onStart/onAction 手势处理器进入，startMusic 内部亦会同步触发 resume()。
+    this.audio.unlock();                       // 创建并恢复 AudioContext（手势内调用即生效）
+    this.audio.startMusic(this.regionIndex);  // v2.6.1 按区域选曲
   }
 
   pauseToggle() {
